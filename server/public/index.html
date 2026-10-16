@@ -68,13 +68,21 @@
       </div>
       <div id="cap" class="capture" hidden>
         <div class="actions">
-          <label class="file-button">📷 ถ่ายหน้าจอเครื่องฟอกไต
+          <button type="button" id="cap-camera-btn">📷 ถ่ายหน้าจอเครื่องฟอกไต</button>
+          <label class="file-button" id="cap-camera-fallback" hidden>📷 เปิดแอปกล้องของเครื่อง
             <input type="file" id="cap-camera" accept="image/*" capture="environment"></label>
           <label class="file-button ghost">🖼️ เลือกไฟล์จากเครื่อง
             <input type="file" id="cap-file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"></label>
           <button type="button" id="cap-close" class="ghost">ปิด</button>
         </div>
         <p class="cap-hint" id="cap-hint"></p>
+        <div class="cap-live" id="cap-live" hidden>
+          <video id="cap-video" autoplay playsinline muted></video>
+          <div class="actions">
+            <button type="button" id="cap-shot">📸 ถ่ายภาพ</button>
+            <button type="button" id="cap-live-cancel" class="ghost">ยกเลิก</button>
+          </div>
+        </div>
         <div class="cap-body" id="cap-body" hidden>
           <img id="cap-img" alt="ภาพหน้าจอเครื่องฟอกไต">
           <div class="cap-side">

@@ -141,6 +141,7 @@ function renderReview(values = {}, unread = []) {
 }
 
 function closeCapture() {
+  stopCamera();
   $('cap').hidden = true;
   $('cap-body').hidden = true;
   captureImage = null;
@@ -158,15 +159,58 @@ async function toJpeg(file) {
   return new File([blob], 'machine-screen.jpg', { type: 'image/jpeg' });
 }
 
+// กล้องสดในหน้าเว็บ (กล้องหลังถ้ามี) ถ้าเปิดไม่ได้ใช้กล้องหรือไฟล์ของเครื่องแทน
+let cameraStream = null;
+function stopCamera() {
+  cameraStream?.getTracks().forEach((t) => t.stop());
+  cameraStream = null;
+  $('cap-video').srcObject = null;
+  $('cap-live').hidden = true;
+}
+
+async function openCamera() {
+  capMsg('');
+  if (!navigator.mediaDevices?.getUserMedia) { $('cap-camera-fallback').hidden = false; $('cap-camera').click(); return; }
+  try {
+    stopCamera();
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false,
+    });
+    $('cap-video').srcObject = cameraStream;
+    $('cap-live').hidden = false;
+    $('cap-body').hidden = true;
+    $('cap-live').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (err) {
+    stopCamera();
+    $('cap-camera-fallback').hidden = false;
+    $('cap-hint').textContent = (err?.name === 'NotAllowedError'
+      ? 'ไม่ได้รับอนุญาตให้ใช้กล้องในหน้านี้ กรุณาอนุญาตกล้องในเบราว์เซอร์ หรือกด "เปิดแอปกล้องของเครื่อง"'
+      : 'เปิดกล้องในหน้านี้ไม่ได้ กรุณากด "เปิดแอปกล้องของเครื่อง" หรือ "เลือกไฟล์จากเครื่อง"');
+  }
+}
+
+async function takeShot() {
+  const video = $('cap-video');
+  if (!video.videoWidth) { $('cap-hint').textContent = 'กล้องยังไม่พร้อม กรุณารอสักครู่'; return; }
+  const canvas = Object.assign(document.createElement('canvas'), { width: video.videoWidth, height: video.videoHeight });
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+  stopCamera();
+  await useImage(new File([blob], 'machine-screen.jpg', { type: 'image/jpeg' }));
+}
+
 async function pickImage(input) {
   const file = input.files[0];
   input.value = '';
-  if (!file) return;
-  if (!file.type.startsWith('image/')) { capMsg('กรุณาเลือกไฟล์ภาพ'); return; }
+  if (file) await useImage(file);
+}
+
+async function useImage(file) {
+  if (!file.type.startsWith('image/')) { $('cap-hint').textContent = 'กรุณาเลือกไฟล์ภาพ'; return; }
   try {
     captureImage = await toJpeg(file);
   } catch {
-    capMsg('เปิดภาพนี้ไม่ได้ กรุณาถ่ายหรือเลือกภาพใหม่');
+    $('cap-hint').textContent = 'เปิดภาพนี้ไม่ได้ กรุณาถ่ายหรือเลือกภาพใหม่';
     return;
   }
   $('cap-img').src = URL.createObjectURL(captureImage);
@@ -214,6 +258,9 @@ $('cap-open').addEventListener('click', async () => {
     : 'ยังไม่ได้เปิดใช้ระบบอ่านภาพอัตโนมัติ ถ่ายหรือเลือกภาพแล้วกรอกค่าตามภาพได้เลย';
 });
 $('cap-close').addEventListener('click', closeCapture);
+$('cap-camera-btn').addEventListener('click', openCamera);
+$('cap-shot').addEventListener('click', takeShot);
+$('cap-live-cancel').addEventListener('click', stopCamera);
 $('cap-camera').addEventListener('change', (e) => pickImage(e.target));
 $('cap-file').addEventListener('change', (e) => pickImage(e.target));
 $('cap-read').addEventListener('click', readScreen);
@@ -246,6 +293,6 @@ $('page-size').addEventListener('change', reloadFromFirstPage);
 $('all').addEventListener('click', () => { $('date').value = ''; reloadFromFirstPage(); });
 $('prev').addEventListener('click', () => { listState.page--; loadSessions(); });
 $('next').addEventListener('click', () => { listState.page++; loadSessions(); });
-$('close').addEventListener('click', () => { $('detail').hidden = true; current = null; });
+$('close').addEventListener('click', () => { closeCapture(); $('detail').hidden = true; current = null; });
 
 loadSessions();
