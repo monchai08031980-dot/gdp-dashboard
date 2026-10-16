@@ -202,6 +202,8 @@ input.time-24[aria-invalid="true"] { border-color: #b91c1c; }
 .cap-warn { margin: 0; padding-left: 18px; font-size: 13px; color: var(--warn-text); }
 .cap-warn:empty { display: none; }
 #cap-msg { font-size: 13px; color: var(--muted); }
+.cap-slot { color: var(--muted); font-size: 13px; }
+#cap-review label.check { gap: 4px; }
 .cap-live { display: grid; gap: 8px; margin-top: 10px; max-width: 640px; }
 .cap-live video { width: 100%; max-height: 60vh; background: #000; border-radius: 6px; object-fit: contain; }
 #cap-shot { font-size: 17px; padding: 10px 18px; }
