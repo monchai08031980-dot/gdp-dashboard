@@ -12,6 +12,8 @@ export const SCREEN_FIELDS = {
   pv_mmhg: { label: 'PV', min: -100, max: 500 },
   tmp_mmhg: { label: 'TMP', min: -100, max: 600 },
   conductivity_ms_cm: { label: 'Conduct', min: 5, max: 20 },
+  ufr: { label: 'UFR', min: 0, max: 4000, integer: true },
+  total_uf_ml: { label: 'Total ml', min: 0, max: 10000, integer: true },
 };
 export const SCREEN_READS = 2;
 
@@ -25,11 +27,13 @@ export const SCREEN_PROMPT = `ภาพนี้คือภาพถ่าย�
 - pv_mmhg: venous pressure (PV, VP, venous, mmHg) ระวังเครื่องหมายลบ
 - tmp_mmhg: transmembrane pressure (TMP, mmHg) ระวังเครื่องหมายลบ
 - conductivity_ms_cm: conductivity ของน้ำยา (Cond, mS/cm) มักอยู่ราว 13-15
-กติกา: ถ้าค่าใดไม่มีบนหน้าจอ ถูกบัง เบลอ สะท้อนแสง หรือไม่แน่ใจแม้แต่หลักเดียว ให้ใส่ null ห้ามเดา ห้ามคำนวณ ห้ามใช้ค่าปกติแทน
+- ufr: อัตราดึงน้ำปัจจุบัน (UF rate, UFR) หน่วย ml/h ถ้าเครื่องแสดงเป็น L/h ให้คูณ 1000
+- total_uf_ml: ปริมาณน้ำที่ดึงออกไปแล้วจริง (UF volume, UFV, removed) หน่วย ml ไม่ใช่เป้าหมาย (UF goal/target) ถ้าเครื่องแสดงเป็น L ให้คูณ 1000
+กติกา: ถ้าค่าใดไม่มีบนหน้าจอ ถูกบัง เบลอ สะท้อนแสง หรือไม่แน่ใจแม้แต่หลักเดียว ให้ใส่ null ห้ามเดา ห้ามคำนวณ (ยกเว้นแปลงลิตรเป็น ml ตามที่บอก) ห้ามใช้ค่าปกติแทน
 ห้ามสลับค่าตั้ง (set/target/limit) กับค่าที่วัดได้จริง ให้ใช้ค่าที่วัดได้จริง
 notes: บอกสั้น ๆ เป็นภาษาไทยถ้ามีค่าที่อ่านไม่ชัดหรือมีสัญญาณเตือนบนหน้าจอ ถ้าไม่มีให้เป็นค่าว่าง
 ตอบเป็น JSON อย่างเดียว ตัวอย่าง:
-{"recorded_time":"10:42","bp_sys":128,"bp_dia":76,"pr":80,"rr":null,"bfr_ml_min":300,"pv_mmhg":150,"tmp_mmhg":80,"conductivity_ms_cm":14.0,"notes":""}`;
+{"recorded_time":"10:42","bp_sys":128,"bp_dia":76,"pr":80,"rr":null,"bfr_ml_min":300,"pv_mmhg":150,"tmp_mmhg":80,"conductivity_ms_cm":14.0,"ufr":600,"total_uf_ml":1250,"notes":""}`;
 
 const toNumber = (v) => {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
@@ -55,8 +59,9 @@ export function reconcileReads(reads) {
     if (times.filter(Boolean).length > 1 && new Set(times).size > 1) warnings.push(`Time อ่านได้ไม่ตรงกัน (${times.join(' / ')}) กรุณาตรวจจากเครื่อง`);
   }
 
-  for (const [name, { label, min, max }] of Object.entries(SCREEN_FIELDS)) {
-    const got = reads.map((r) => toNumber(r?.[name]));
+  for (const [name, { label, min, max, integer }] of Object.entries(SCREEN_FIELDS)) {
+    // UFR และ Total ml เก็บเป็นจำนวนเต็ม (ml/h, ml)
+    const got = reads.map((r) => toNumber(r?.[name])).map((v) => (integer && v !== null ? Math.round(v) : v));
     values[name] = null;
     if (got.every((v) => v === null)) { missing.push(label); continue; }
     if (got.some((v) => v === null) || got.some((v) => v !== got[0])) {

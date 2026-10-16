@@ -126,7 +126,8 @@ for (const [kind, fields] of [['vitals', VITAL_FIELDS], ['medications', MEDICATI
 // การถ่ายภาพจากหน้าจอเครื่องฟอก: ถ่ายหรือเลือกภาพ อ่านค่า ให้พยาบาลตรวจ แล้วบันทึกเป็นแถวใหม่
 // ภาพใช้อ่านค่าอย่างเดียว ไม่ได้เก็บไว้ในระบบ แถวที่บันทึกผ่าน API เดิมจึงมี audit log เหมือนกรอกเอง
 // ---------------------------------------------------------------------------
-const CAPTURE_FIELDS = VITAL_FIELDS.filter((f) => ['recorded_time', 'bp_sys', 'bp_dia', 'pr', 'rr', 'bfr_ml_min', 'pv_mmhg', 'tmp_mmhg', 'conductivity_ms_cm', 'note'].includes(f.name));
+// เรียงตามคอลัมน์บันทึกระหว่างฟอก: Time BP sys BP dia PR RR BFR PV TMP Conduct UFR Total ml (หมายเหตุใส่ให้อัตโนมัติ)
+const CAPTURE_FIELDS = VITAL_FIELDS.filter((f) => f.name !== 'note');
 const CAPTURE_NOTE = 'อ่านจากภาพหน้าจอเครื่อง';
 let captureImage = null;
 let readerEnabled = null;
@@ -135,8 +136,8 @@ const nowHm = () => new Date().toTimeString().slice(0, 5);
 const capMsg = (text) => { $('cap-msg').textContent = text; };
 
 function renderReview(values = {}, unread = []) {
-  $('cap-review').innerHTML = CAPTURE_FIELDS.map((f) =>
-    `<label class="field ${f.name === 'note' ? 'wide' : ''}"><span>${esc(f.label)}</span>${renderInput(f, values[f.name] ?? '')}</label>`).join('');
+  $('cap-review').innerHTML = `<thead><tr>${CAPTURE_FIELDS.map((f) => `<th>${esc(f.label)}</th>`).join('')}</tr></thead>
+    <tbody><tr>${CAPTURE_FIELDS.map((f) => `<td>${renderInput(f, values[f.name] ?? '')}</td>`).join('')}</tr></tbody>`;
   for (const name of unread) $('cap-review').querySelector(`[name="${name}"]`)?.classList.add('unread');
 }
 
@@ -228,7 +229,7 @@ async function useImage(file) {
   $('cap-warn').innerHTML = '';
   $('cap-status').textContent = readerEnabled ? 'กด "อ่านค่า" เพื่อให้ระบบอ่านค่าจากภาพ' : '';
   capMsg('');
-  renderReview({ recorded_time: nowHm(), note: CAPTURE_NOTE });
+  renderReview({ recorded_time: nowHm() });
   if (readerEnabled) readScreen();
 }
 
@@ -239,12 +240,12 @@ async function readScreen() {
   $('cap-warn').innerHTML = '';
   try {
     const { values, warnings, notes } = await apiUpload(`/sessions/${current.id}/vitals/read-screen`, captureImage);
-    const unread = CAPTURE_FIELDS.filter((f) => f.name !== 'note' && values[f.name] == null).map((f) => f.name);
+    const unread = CAPTURE_FIELDS.filter((f) => values[f.name] == null).map((f) => f.name);
     if (values.recorded_time == null) values.recorded_time = nowHm();
-    renderReview({ ...values, note: CAPTURE_NOTE }, unread);
+    renderReview(values, unread);
     const unreadLabels = CAPTURE_FIELDS.filter((f) => unread.includes(f.name)).map((f) => f.label);
     $('cap-status').textContent = unread.length
-      ? `อ่านได้แน่นอน ${CAPTURE_FIELDS.length - 1 - unread.length} ค่า ช่องสีเหลือง (${unreadLabels.join(', ')}) กรุณากรอกเองจากหน้าจอเครื่อง`
+      ? `อ่านได้แน่นอน ${CAPTURE_FIELDS.length - unread.length} ค่า ช่องสีเหลือง (${unreadLabels.join(', ')}) กรุณากรอกเองจากหน้าจอเครื่อง`
       : 'อ่านได้ครบทุกค่า';
     $('cap-warn').innerHTML = [...warnings, ...(notes ? [notes] : []), 'กรุณาตรวจค่ากับหน้าจอเครื่องทุกครั้งก่อนบันทึก']
       .map((w) => `<li>${esc(w)}</li>`).join('');
@@ -282,7 +283,8 @@ $('cap-save').addEventListener('click', async () => {
     data[f.name] = value === '' ? null : f.type === 'number' ? Number(value) : value;
   }
   if (!data.recorded_time) { capMsg('กรุณาใส่เวลา'); return; }
-  if (CAPTURE_FIELDS.every((f) => f.name === 'recorded_time' || f.name === 'note' || data[f.name] == null)) { capMsg('ยังไม่มีค่าที่จะบันทึก'); return; }
+  data.note = CAPTURE_NOTE;
+  if (CAPTURE_FIELDS.every((f) => f.name === 'recorded_time' || data[f.name] == null)) { capMsg('ยังไม่มีค่าที่จะบันทึก'); return; }
   if (await run(() => api(`/sessions/${current.id}/vitals`, { method: 'POST', body: JSON.stringify(data) }))) {
     closeCapture();
     $('msg').textContent = 'บันทึกค่าจากภาพหน้าจอลงบันทึกระหว่างฟอกแล้ว';

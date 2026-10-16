@@ -51,7 +51,7 @@ test('อ่านภาพหน้าจอเครื่อง: ตรวจ
     assert.equal(out.values.pr, null);
     assert.equal(out.values.tmp_mmhg, null);
     assert.equal(out.values.conductivity_ms_cm, 14);
-    assert.deepEqual(out.missing, ['RR']);
+    assert.deepEqual(out.missing, ['RR', 'UFR', 'Total ml']);
     assert.match(out.warnings[0], /^PR อ่านได้ไม่ตรงกัน \(76 \/ 78\)/);
     assert.match(out.warnings[1], /^TMP/);
 
@@ -68,12 +68,14 @@ test('อ่านภาพหน้าจอเครื่อง: ตรวจ
 });
 
 test('รวมผลอ่าน: ค่าต้องตรงกันทุกครั้งและสมเหตุผลจึงจะเติม', () => {
-  const a = { recorded_time: '10:42', bp_sys: 80, bp_dia: 120, pr: '80', rr: null, bfr_ml_min: 300, pv_mmhg: -20, tmp_mmhg: 80, conductivity_ms_cm: 14.1, notes: 'จอสะท้อนแสง' };
+  const a = { recorded_time: '10:42', bp_sys: 80, bp_dia: 120, pr: '80', rr: null, bfr_ml_min: 300, pv_mmhg: -20, tmp_mmhg: 80, conductivity_ms_cm: 14.1, ufr: 612.4, total_uf_ml: '1250', notes: 'จอสะท้อนแสง' };
   const out = reconcileReads([a, { ...a, recorded_time: '10:43', notes: 'จอสะท้อนแสง' }]);
   assert.equal(out.values.recorded_time, null);
   assert.equal(out.values.bp_sys, null); // sys ต่ำกว่า dia ไม่สมเหตุผล
   assert.equal(out.values.pr, 80);
   assert.equal(out.values.pv_mmhg, -20);
+  assert.equal(out.values.ufr, 612);
+  assert.equal(out.values.total_uf_ml, 1250);
   assert.equal(out.notes, 'จอสะท้อนแสง');
   assert.ok(out.warnings.some((w) => w.startsWith('Time อ่านได้ไม่ตรงกัน')));
   assert.ok(out.warnings.some((w) => w.startsWith('BP 80/120')));
