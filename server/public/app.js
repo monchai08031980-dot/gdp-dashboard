@@ -168,9 +168,19 @@ function stopCamera() {
   $('cap-live').hidden = true;
 }
 
+// เปิดกล้องของเครื่องที่ใช้อยู่: ถ้าหน้าเว็บเปิดกล้องเองได้ แสดงภาพสดพร้อมปุ่มถ่าย
+// ถ้าไม่ได้ (เบราว์เซอร์หรือหน้าที่ฝังอยู่ไม่อนุญาต) เปิดกล้องของเครื่องผ่านช่องเลือกภาพแบบ capture แทนทันที
+const cameraBlocked = () => {
+  const policy = document.permissionsPolicy || document.featurePolicy;
+  return !navigator.mediaDevices?.getUserMedia || (policy?.allowsFeature && !policy.allowsFeature('camera'));
+};
+function openDeviceCamera() {
+  $('cap-device').click();
+}
+
 async function openCamera() {
   capMsg('');
-  if (!navigator.mediaDevices?.getUserMedia) { $('cap-hint').textContent = 'เบราว์เซอร์นี้เปิดกล้องไม่ได้ กรุณากด "เลือกไฟล์จากเครื่อง"'; return; }
+  if (cameraBlocked()) { openDeviceCamera(); return; }
   try {
     stopCamera();
     cameraStream = await navigator.mediaDevices.getUserMedia({
@@ -182,9 +192,10 @@ async function openCamera() {
     $('cap-live').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   } catch (err) {
     stopCamera();
-    $('cap-hint').textContent = (err?.name === 'NotAllowedError'
-      ? 'ไม่ได้รับอนุญาตให้ใช้กล้องในหน้านี้ กรุณาอนุญาตกล้องในเบราว์เซอร์ หรือกด "เลือกไฟล์จากเครื่อง"'
-      : 'เปิดกล้องในหน้านี้ไม่ได้ กรุณากด "เลือกไฟล์จากเครื่อง"');
+    if (err?.name === 'NotAllowedError') {
+      $('cap-hint').textContent = 'ไม่ได้รับอนุญาตให้ใช้กล้อง กรุณาอนุญาตกล้องในเบราว์เซอร์ แล้วกดถ่ายอีกครั้ง';
+    }
+    openDeviceCamera();
   }
 }
 
@@ -261,6 +272,7 @@ $('cap-camera-btn').addEventListener('click', openCamera);
 $('cap-shot').addEventListener('click', takeShot);
 $('cap-live-cancel').addEventListener('click', stopCamera);
 $('cap-file').addEventListener('change', (e) => pickImage(e.target));
+$('cap-device').addEventListener('change', (e) => pickImage(e.target));
 $('cap-read').addEventListener('click', readScreen);
 $('cap-save').addEventListener('click', async () => {
   if (needUser('cap-msg')) return;
