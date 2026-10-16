@@ -1,23 +1,35 @@
-import { Router } from 'express';
+import { createHash } from 'node:crypto';
+import express, { Router } from 'express';
 import { pool, withAudit } from '../db.js';
 import { pick, insertSql, updateSql } from '../crud.js';
+import { PATIENT_FIELDS } from '../../public/form519.js';
 
-const COLUMNS = [
-  'hn', 'prefix', 'first_name', 'last_name', 'sex', 'birth_date', 'blood_group', 'diagnosis',
-  'dry_weight_kg', 'vascular_access', 'access_side', 'hbsag', 'anti_hcv', 'anti_hiv', 'payer', 'active',
-];
+const COLUMNS = PATIENT_FIELDS.map((f) => f.name);
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const FILE_COLUMNS = 'id, patient_id, kind, file_name, mime_type, size_bytes, uploaded_by, created_at';
 
 const router = Router();
 
+// รายชื่อผู้ป่วย: ?q=(HN หรือชื่อ)&limit=&offset= จำนวนทั้งหมดอยู่ใน header X-Total-Count
 router.get('/', async (req, res) => {
-  const q = `%${req.query.q || ''}%`;
+  const params = [];
+  const where = ['active'];
+  if (req.query.q?.trim()) {
+    const q = params.push(`%${req.query.q.trim()}%`);
+    where.push(`(hn ILIKE $${q} OR first_name ILIKE $${q} OR last_name ILIKE $${q}
+      OR concat_ws(' ', first_name, last_name) ILIKE $${q} OR concat(prefix, first_name, ' ', last_name) ILIKE $${q})`);
+  }
+  const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 500);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
   const { rows } = await pool.query(
-    `SELECT * FROM patients
-     WHERE active AND (hn ILIKE $1 OR first_name ILIKE $1 OR last_name ILIKE $1)
-     ORDER BY hn`,
-    [q],
+    `SELECT *, count(*) OVER () AS total_count FROM patients
+     WHERE ${where.join(' AND ')}
+     ORDER BY hn
+     LIMIT $${params.push(limit)} OFFSET $${params.push(offset)}`,
+    params,
   );
-  res.json(rows);
+  res.set('X-Total-Count', String(rows[0]?.total_count ?? 0));
+  res.json(rows.map(({ total_count, ...row }) => row));
 });
 
 router.get('/:id', async (req, res) => {
@@ -37,6 +49,93 @@ router.patch('/:id', async (req, res) => {
   const row = await withAudit(req.user, req.reason, async (db) => (await db.query(updateSql('patients', req.params.id, data))).rows[0]);
   if (!row) return res.status(404).json({ error: 'ไม่พบผู้ป่วย' });
   res.json(row);
+});
+
+// ลบผู้ป่วยออกจากรายชื่อ: ปิดสถานะไว้ ไม่ลบเวชระเบียนและประวัติการฟอก
+router.delete('/:id', async (req, res) => {
+  const row = await withAudit(req.user, req.reason, async (db) =>
+    (await db.query('UPDATE patients SET active = false WHERE id = $1 AND active RETURNING id', [req.params.id])).rows[0]);
+  if (!row) return res.status(404).json({ error: 'ไม่พบผู้ป่วย' });
+  res.status(204).end();
+});
+
+// ---------------------------------------------------------------------------
+// ไฟล์แนบและรูปผู้ป่วย
+// ---------------------------------------------------------------------------
+router.get('/:id/files', async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT ${FILE_COLUMNS} FROM patient_files WHERE patient_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`,
+    [req.params.id],
+  );
+  res.json(rows);
+});
+
+const isJpeg = (b) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+const isPdf = (b) => b.subarray(0, 5).toString('latin1') === '%PDF-';
+
+// อัปโหลด: POST /:id/files?kind=PHOTO|DOCUMENT  body = ไฟล์ดิบ, header X-File-Name = ชื่อไฟล์ (URL-encoded)
+router.post(
+  '/:id/files',
+  express.raw({ type: ['image/jpeg', 'application/pdf'], limit: MAX_FILE_BYTES }),
+  async (req, res) => {
+    const kind = req.query.kind === 'PHOTO' ? 'PHOTO' : 'DOCUMENT';
+    const content = Buffer.isBuffer(req.body) ? req.body : null;
+    const mime = req.is('image/jpeg') ? 'image/jpeg' : req.is('application/pdf') ? 'application/pdf' : null;
+    if (!content?.length || !mime) return res.status(415).json({ error: 'รับเฉพาะไฟล์ .jpg และ .pdf' });
+    if ((mime === 'image/jpeg' && !isJpeg(content)) || (mime === 'application/pdf' && !isPdf(content))) {
+      return res.status(415).json({ error: 'เนื้อไฟล์ไม่ตรงกับชนิดไฟล์ รับเฉพาะ .jpg และ .pdf' });
+    }
+    if (kind === 'PHOTO' && mime !== 'image/jpeg') return res.status(415).json({ error: 'รูปผู้ป่วยต้องเป็นไฟล์ .jpg' });
+    const fileName = (req.get('X-File-Name') ? decodeURIComponent(req.get('X-File-Name')) : 'file').slice(0, 200);
+
+    const row = await withAudit(req.user, req.reason, async (db) => {
+      const { rows: patient } = await db.query('SELECT photo_file_id FROM patients WHERE id = $1 AND active FOR UPDATE', [req.params.id]);
+      if (!patient[0]) return null;
+      const { rows } = await db.query(
+        `INSERT INTO patient_files (patient_id, kind, file_name, mime_type, size_bytes, sha256, uploaded_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING ${FILE_COLUMNS}`,
+        [req.params.id, kind, fileName, mime, content.length, createHash('sha256').update(content).digest('hex'), req.user],
+      );
+      await db.query('INSERT INTO file_contents (file_id, content) VALUES ($1, $2)', [rows[0].id, content]);
+      if (kind === 'PHOTO') {
+        // รูปเดิมเก็บไว้เป็นประวัติ แต่ไม่แสดงแล้ว
+        if (patient[0].photo_file_id) await db.query('UPDATE patient_files SET deleted_at = now() WHERE id = $1', [patient[0].photo_file_id]);
+        await db.query('UPDATE patients SET photo_file_id = $1 WHERE id = $2', [rows[0].id, req.params.id]);
+      }
+      return rows[0];
+    });
+    if (!row) return res.status(404).json({ error: 'ไม่พบผู้ป่วย' });
+    res.status(201).json(row);
+  },
+);
+
+router.get('/:id/files/:fileId', async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT f.file_name, f.mime_type, c.content FROM patient_files f JOIN file_contents c ON c.file_id = f.id
+     WHERE f.id = $1 AND f.patient_id = $2`,
+    [req.params.fileId, req.params.id],
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'ไม่พบไฟล์' });
+  res.set({
+    'Content-Type': rows[0].mime_type,
+    'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(rows[0].file_name)}`,
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'private, no-store',
+  });
+  res.send(rows[0].content);
+});
+
+router.delete('/:id/files/:fileId', async (req, res) => {
+  const row = await withAudit(req.user, req.reason, async (db) => {
+    const { rows } = await db.query(
+      'UPDATE patient_files SET deleted_at = now() WHERE id = $1 AND patient_id = $2 AND deleted_at IS NULL RETURNING id',
+      [req.params.fileId, req.params.id],
+    );
+    if (rows[0]) await db.query('UPDATE patients SET photo_file_id = NULL WHERE id = $1 AND photo_file_id = $2', [req.params.id, req.params.fileId]);
+    return rows[0];
+  });
+  if (!row) return res.status(404).json({ error: 'ไม่พบไฟล์' });
+  res.status(204).end();
 });
 
 export default router;

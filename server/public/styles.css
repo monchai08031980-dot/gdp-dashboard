@@ -1,3 +1,4 @@
+[hidden] { display: none !important; }
 :root {
   --bg: #f6f8fb;
   --panel: #ffffff;
@@ -57,3 +58,23 @@ button.danger { color: #b91c1c; border-color: #b91c1c; }
 #page-info { font-variant-numeric: tabular-nums; }
 .pager-buttons { display: flex; gap: 6px; margin-left: auto; }
 .pager button:disabled { opacity: 0.4; cursor: default; }
+.views { display: flex; gap: 4px; max-width: 1200px; margin: 0 auto; padding: 12px 16px 0; }
+.view-tab { background: transparent; color: var(--muted); border: 1px solid transparent; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; }
+.view-tab.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; display: inline-grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 14px; }
+.p-head { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 16px; align-items: start; margin-bottom: 12px; }
+.p-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.photo-box { display: grid; gap: 8px; justify-items: center; }
+.photo { width: 150px; height: 180px; border-radius: 8px; border: 1px solid var(--line); background: var(--accent-soft); display: grid; place-items: center; overflow: hidden; color: var(--accent); font-size: 40px; font-weight: 600; }
+.photo img { width: 100%; height: 100%; object-fit: cover; }
+.file-button { position: relative; display: inline-block; font: inherit; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; font-size: 14px; }
+.file-button.ghost { background: #fff; color: var(--accent); }
+.file-button input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.file-button:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid #b91c1c; color: #b91c1c; }
+button.danger-solid { background: #b91c1c; border-color: #b91c1c; }
+.viewer { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.viewer img { max-width: 100%; max-height: 70vh; display: block; margin: 0 auto; }
+#p-files a { color: var(--accent); }
+@media (max-width: 560px) { .p-head { grid-template-columns: 1fr; } }
+button.link { background: none; border: none; padding: 0; color: var(--accent); text-decoration: underline; text-align: left; }

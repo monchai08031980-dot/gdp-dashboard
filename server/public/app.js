@@ -1,85 +1,14 @@
 // หน้าบันทึกการฟอกเลือด: รายการรอบฟอก, แบบฟอร์ม 519, บันทึกระหว่างฟอก, ยา และประวัติการแก้ไข
-import { SECTIONS, CHECKLISTS, VITAL_FIELDS, MEDICATION_FIELDS } from './form519.js';
+import { SECTIONS, VITAL_FIELDS, MEDICATION_FIELDS } from './form519.js';
+import {
+  $, api, apiList, esc, fmtTime, fmtDate, age, readField, fieldValue, renderInput, renderField, needUser, ACTION, TABLE,
+} from './common.js';
 
-const $ = (id) => document.getElementById(id);
 const STATUS = Object.fromEntries(SECTIONS[0].fields.find((f) => f.name === 'status').options);
-const ACTION = { INSERT: 'สร้าง', UPDATE: 'แก้ไข', DELETE: 'ลบ' };
-const TABLE = { dialysis_sessions: 'แบบฟอร์ม', intradialytic_vitals: 'บันทึกระหว่างฟอก', session_medications: 'ยา', patients: 'ผู้ป่วย' };
 const ACCESS_SIDE = { LT: 'Lt', RT: 'Rt' };
 
 let current = null;
 const listState = { page: 1 };
-
-try { $('user').value = localStorage.getItem('hemo.user') || ''; } catch {}
-$('user').addEventListener('change', () => { try { localStorage.setItem('hemo.user', $('user').value); } catch {} });
-
-// รายการแบบแบ่งหน้า: คืนแถวพร้อมจำนวนทั้งหมดจาก header X-Total-Count
-async function apiList(path) {
-  const res = await fetch('/api' + path);
-  const rows = await res.json();
-  if (!res.ok) throw new Error(rows.error || res.statusText);
-  return { rows, total: Number(res.headers.get('X-Total-Count')) || 0 };
-}
-
-async function api(path, options = {}) {
-  const headers = { 'Content-Type': 'application/json', 'X-User-Name': encodeURIComponent($('user').value.trim()) };
-  const reason = $('reason').value.trim();
-  if (reason) headers['X-Edit-Reason'] = encodeURIComponent(reason);
-  const res = await fetch('/api' + path, { ...options, headers });
-  if (res.status === 204) return null;
-  const body = await res.json();
-  if (!res.ok) throw new Error(body.error || res.statusText);
-  return body;
-}
-
-const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-const fmtTime = (t) => (t ? new Date(t).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '');
-const fmtDate = (d) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { dateStyle: 'medium' }) : '');
-const hhmm = (t) => (t ? String(t).slice(0, 5) : '');
-const age = (birth, on) => {
-  if (!birth) return '';
-  const b = new Date(birth), d = new Date(on);
-  return d.getFullYear() - b.getFullYear() - (d < new Date(d.getFullYear(), b.getMonth(), b.getDate()) ? 1 : 0);
-};
-
-// ค่าที่แสดงในฟอร์ม -> ค่าที่ส่งให้ API
-function readField(form, field) {
-  if (field.type === 'checklist') {
-    return [...form.querySelectorAll(`input[name="${field.name}"]:checked`)].map((el) => el.value);
-  }
-  const value = form.elements[field.name].value;
-  if (value === '') return null;
-  if (field.type === 'bool') return value === 'true';
-  if (field.type === 'number' || field.name === 'dialysate_flow_ml_min') return Number(value);
-  return value;
-}
-
-function fieldValue(record, field) {
-  const v = record?.[field.name];
-  if (v === null || v === undefined) return field.type === 'checklist' ? [] : '';
-  if (field.type === 'time') return hhmm(v);
-  return field.type === 'checklist' ? v : String(v);
-}
-
-function renderInput(field, value) {
-  const n = field.name;
-  if (field.type === 'checklist') {
-    return `<div class="checks">${CHECKLISTS[n].map(([k, label]) => `
-      <label class="check"><input type="checkbox" name="${n}" value="${k}" ${value.includes(k) ? 'checked' : ''}>${esc(label)}</label>`).join('')}</div>`;
-  }
-  if (field.type === 'select' || field.type === 'bool') {
-    return `<select name="${n}"><option value=""></option>${field.options.map(([k, label]) =>
-      `<option value="${k}" ${k === value ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
-  }
-  if (field.type === 'textarea') return `<textarea name="${n}" rows="2">${esc(value)}</textarea>`;
-  return `<input name="${n}" type="${field.type}" ${field.type === 'number' ? 'step="any"' : ''} value="${esc(value)}">`;
-}
-
-function renderField(field, record) {
-  const wide = field.type === 'checklist' || field.type === 'textarea';
-  const tag = field.type === 'checklist' ? 'div' : 'label';
-  return `<${tag} class="field ${wide ? 'wide' : ''}"><span>${esc(field.label)}</span>${renderInput(field, fieldValue(record, field))}</${tag}>`;
-}
 
 async function loadSessions() {
   const size = Number($('page-size').value);
@@ -139,13 +68,6 @@ async function loadAudit() {
     <td>${esc(a.changed_by)}</td><td>${esc((a.changed_fields || []).join(', '))}</td><td>${esc(a.reason)}</td></tr>`).join('');
 }
 
-function needUser() {
-  if ($('user').value.trim()) return false;
-  $('msg').textContent = 'กรุณาระบุชื่อผู้บันทึกก่อน';
-  $('user').focus();
-  return true;
-}
-
 async function run(action) {
   try {
     await action();
@@ -159,7 +81,7 @@ async function run(action) {
 }
 
 $('save').addEventListener('click', () => {
-  if (needUser()) return;
+  if (needUser('msg')) return;
   const changes = {};
   for (const field of SECTIONS.flatMap((s) => s.fields)) {
     const value = readField($('form'), field);
@@ -176,7 +98,7 @@ $('save').addEventListener('click', () => {
 for (const [kind, fields] of [['vitals', VITAL_FIELDS], ['medications', MEDICATION_FIELDS]]) {
   $(kind).addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-act]');
-    if (!btn || needUser()) return;
+    if (!btn || needUser('msg')) return;
     const tr = btn.closest('tr');
     const data = {};
     for (const f of fields) {

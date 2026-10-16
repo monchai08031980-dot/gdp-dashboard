@@ -194,4 +194,24 @@ export const MEDICATION_FIELDS = [
   { name: 'note', label: 'Note', type: 'text' },
 ];
 
+// ข้อมูลผู้ป่วย (หน้าผู้ป่วยทั้งหมด)
+const POS_NEG = [['NEG', 'Negative'], ['POS', 'Positive'], ['UNKNOWN', 'ไม่ทราบ']];
+export const PATIENT_FIELDS = [
+  { name: 'hn', label: 'HN', type: 'text', required: true },
+  { name: 'prefix', label: 'คำนำหน้า', type: 'text' },
+  { name: 'first_name', label: 'ชื่อ', type: 'text', required: true },
+  { name: 'last_name', label: 'นามสกุล', type: 'text', required: true },
+  { name: 'sex', label: 'เพศ', type: 'select', options: [['M', 'ชาย'], ['F', 'หญิง']] },
+  { name: 'birth_date', label: 'วันเกิด', type: 'date' },
+  { name: 'blood_group', label: 'กรุ๊ปเลือด', type: 'select', options: [['A', 'A'], ['B', 'B'], ['AB', 'AB'], ['O', 'O']] },
+  { name: 'payer', label: 'สิทธิการรักษา', type: 'select', options: [['บัตรทอง', 'บัตรทอง'], ['ประกันสังคม', 'ประกันสังคม'], ['ข้าราชการ', 'ข้าราชการ'], ['ชำระเอง', 'ชำระเอง']] },
+  { name: 'diagnosis', label: 'สาเหตุไตวาย', type: 'text' },
+  { name: 'dry_weight_kg', label: 'Dry weight (kg)', type: 'number' },
+  { name: 'vascular_access', label: 'Vascular access', type: 'select', options: [['AVF', 'AVF'], ['AVG', 'AVG'], ['DLC', 'DLC'], ['PC', 'PC']] },
+  { name: 'access_side', label: 'ข้าง', type: 'select', options: [['LT', 'Lt'], ['RT', 'Rt']] },
+  { name: 'hbsag', label: 'HBsAg', type: 'select', options: POS_NEG },
+  { name: 'anti_hcv', label: 'Anti-HCV', type: 'select', options: POS_NEG },
+  { name: 'anti_hiv', label: 'Anti-HIV', type: 'select', options: POS_NEG },
+];
+
 export const SESSION_COLUMNS = ['patient_id', ...SECTIONS.flatMap((s) => s.fields.map((f) => f.name))];
