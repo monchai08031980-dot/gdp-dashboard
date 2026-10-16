@@ -26,7 +26,7 @@
         <button id="all" class="ghost">ทั้งหมด</button>
       </div>
       <table>
-        <thead><tr><th>วันที่</th><th>รอบ</th><th>เตียง</th><th>HN</th><th>ชื่อ-สกุล</th><th>น้ำหนักก่อน/หลัง</th><th>UF จริง</th><th>สถานะ</th></tr></thead>
+        <thead><tr><th>วันที่</th><th>No.</th><th>รอบ</th><th>เตียง</th><th>HN</th><th>ชื่อ-สกุล</th><th>Pre / Post BW</th><th>Total UF</th><th>สถานะ</th></tr></thead>
         <tbody id="sessions"></tbody>
       </table>
     </section>
@@ -36,24 +36,24 @@
         <h2 id="detail-title">แบบบันทึกการฟอกเลือด (519)</h2>
         <button id="close" class="ghost">ปิด</button>
       </div>
+      <div class="patient" id="patient"></div>
       <form id="form"></form>
       <div class="actions">
         <input id="reason" placeholder="เหตุผลที่แก้ไข (ถ้ามี)">
-        <button id="save">บันทึก</button>
+        <button id="save">บันทึกแบบฟอร์ม</button>
         <span id="msg"></span>
       </div>
-      <h3>สัญญาณชีพระหว่างฟอก</h3>
-      <table>
-        <thead><tr><th>เวลา</th><th>BP</th><th>ชีพจร</th><th>QB</th><th>VP</th><th>AP</th><th>TMP</th><th>UF สะสม</th></tr></thead>
-        <tbody id="vitals"></tbody>
-      </table>
+      <h3>บันทึกระหว่างฟอก</h3>
+      <table class="rows" id="vitals"></table>
+      <h3>EPO / Medication during HD</h3>
+      <table class="rows" id="medications"></table>
       <h3>ประวัติการแก้ไข (Audit log)</h3>
       <table>
-        <thead><tr><th>เวลา</th><th>การกระทำ</th><th>ผู้แก้ไข</th><th>ฟิลด์ที่เปลี่ยน</th><th>เหตุผล</th></tr></thead>
+        <thead><tr><th>เวลา</th><th>การกระทำ</th><th>ส่วน</th><th>ผู้แก้ไข</th><th>ฟิลด์ที่เปลี่ยน</th><th>เหตุผล</th></tr></thead>
         <tbody id="audit"></tbody>
       </table>
     </section>
   </main>
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

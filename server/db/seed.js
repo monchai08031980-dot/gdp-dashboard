@@ -1,9 +1,10 @@
 // ข้อมูลจำลองเท่านั้น ห้ามใช้ข้อมูลผู้ป่วยจริง (ชื่อ/HN ทั้งหมดสมมติ)
 import { pool, withAudit } from '../src/db.js';
+import { insertSql } from '../src/crud.js';
 
 const firstNames = ['สมชาย', 'สมหญิง', 'ประเสริฐ', 'มาลี', 'บุญมี', 'จันทร์เพ็ญ', 'วิชัย', 'สุดา', 'ทองดี', 'อรุณี'];
 const lastNames = ['ทดสอบ', 'จำลอง', 'ตัวอย่าง', 'สมมติ', 'ใจดี'];
-const accesses = ['AVF', 'AVF', 'AVG', 'PERM_CATH'];
+const accesses = ['AVF', 'AVF', 'AVG', 'PC'];
 const diagnoses = ['เบาหวาน', 'ความดันโลหิตสูง', 'ไตอักเสบเรื้อรัง', 'ไม่ทราบสาเหตุ'];
 
 let seed = 519;
@@ -34,47 +35,60 @@ await withAudit('seed-script', 'ข้อมูลจำลองสำหรั
         diagnoses[i % diagnoses.length],
         dryWeight,
         accesses[i % accesses.length],
-        i % 3 === 0 ? 'ขวา' : 'ซ้าย',
+        i % 3 === 0 ? 'RT' : 'LT',
         i % 3 === 0 ? 'ประกันสังคม' : 'บัตรทอง',
       ],
     );
     const patientId = rows[0].id;
 
+    let lastBw = dryWeight + 0.2;
     for (let s = 0; s < 3; s++) {
       const date = new Date(Date.UTC(2026, 9, 1 + s * 2 + (i % 2)));
-      const start = new Date(date.getTime() + (1 + (i % 2) * 5) * 3600_000); // 08:00 / 13:00 น.
-      const end = new Date(start.getTime() + 4 * 3600_000);
-      const pre = dryWeight + between(10, 35) / 10;
-      const uf = Math.round((pre - dryWeight) * 1000);
-      const { rows: sess } = await db.query(
-        `INSERT INTO dialysis_sessions (patient_id, session_date, shift, bed_no, machine_no, session_no,
-           pre_weight_kg, dry_weight_kg, pre_bp_sys, pre_bp_dia, pre_pulse, pre_temp_c,
-           dialyzer, dialyzer_reuse_no, duration_min, blood_flow_ml_min, dialysate_flow_ml_min,
-           dialysate_na, dialysate_k, dialysate_ca, dialysate_hco3, uf_goal_ml,
-           anticoagulant, heparin_loading_iu, heparin_maintenance_iu, access_used,
-           start_time, end_time, post_weight_kg, post_bp_sys, post_bp_dia, post_pulse,
-           actual_uf_ml, nurse_name, physician_name, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,36.6,'FX80',$12,240,300,500,138,2.0,1.25,35,$13,
-           'Heparin',1000,500,$14,$15,$16,$17,$18,$19,$20,$21,'พยาบาลจำลอง ก','แพทย์จำลอง ข','COMPLETED')
-         RETURNING id`,
-        [
-          patientId, date.toISOString().slice(0, 10), 1 + (i % 2), i + 1, `M-${String(i + 1).padStart(2, '0')}`,
-          s + 1, pre, dryWeight, between(130, 170), between(70, 95), between(70, 95), s + 1, uf,
-          accesses[i % accesses.length], start, end, (pre - uf / 1000 + 0.1).toFixed(2),
-          between(115, 150), between(65, 85), between(70, 90), uf - 100,
-        ],
-      );
-      for (let h = 0; h <= 4; h++) {
-        await db.query(
-          `INSERT INTO intradialytic_vitals (session_id, recorded_at, bp_sys, bp_dia, pulse,
-             blood_flow_ml_min, venous_pressure, arterial_pressure, tmp, uf_rate_ml_h, uf_volume_ml)
-           VALUES ($1,$2,$3,$4,$5,300,$6,$7,$8,$9,$10)`,
-          [
-            sess[0].id, new Date(start.getTime() + h * 3600_000), between(110, 160), between(60, 90),
-            between(70, 95), between(120, 180), -between(120, 180), between(40, 90),
-            Math.round(uf / 4), Math.round((uf / 4) * h),
-          ],
-        );
+      const startHour = i % 2 ? 13 : 8;
+      const pre = +(dryWeight + between(10, 35) / 10).toFixed(1);
+      const gain = +(pre - lastBw).toFixed(1);
+      const targetUf = +(pre - dryWeight).toFixed(1);
+      const post = +(pre - targetUf + 0.1).toFixed(1);
+      const totalUf = Math.round((pre - post) * 1000);
+      const complication = s === 1 && i % 4 === 0 ? ['hypotension'] : ['no_complication'];
+      const session = {
+        patient_id: patientId, session_date: date.toISOString().slice(0, 10), session_no: 40 + s,
+        shift: 1 + (i % 2), bed_no: i + 1, status: 'COMPLETED',
+        pre_symptoms: s === 2 && i % 3 === 0 ? ['edema', 'itching'] : [],
+        pre_weight_kg: pre, dry_weight_kg: dryWeight, last_bw_kg: lastBw, weight_gain_kg: gain,
+        target_uf_kg: targetUf, post_bw_kg: post, weight_loss_kg: +(pre - post).toFixed(1),
+        access_side: i % 3 === 0 ? 'RT' : 'LT', access_type: accesses[i % accesses.length],
+        access_thrill: true, access_bruit: true, access_inflammation: false,
+        machine_no: String(i + 1), dialyzer: 'FX80', surface_area_m2: 1.8, test_leak: true,
+        dialyzer_use_no: s + 1, disinfectant: 'Peracetic', blood_flow_ml_min: 300 + (i % 3) * 50,
+        dialysate_flow_ml_min: 500, dialysate_temp_c: 36.5, na_uf_variation: false,
+        na_start: 138, na_conc_off: 138, dialysate_k: 2.0, dialysate_ca: 2.5, dialysate_hco3: 35,
+        anticoagulant: 'HEPARIN', heparin_total_iu: 2000, heparin_loading_iu: 1000, heparin_maintenance_iu: 1000,
+        duration_hr: 4, time_start: `${String(startHour).padStart(2, '0')}:00`, time_off: `${startHour + 4}:00`,
+        pre_bp_sys: between(130, 170), pre_bp_dia: between(70, 95), pre_bt_c: 36.6,
+        pre_pr: between(70, 95), pre_rr: 18, hct_pct: between(28, 36), hb_g_dl: between(90, 120) / 10,
+        total_uf_ml: totalUf, net_fluid_balance_ml: -totalUf,
+        complications: complication, technical_complications: ['no_complication'],
+        nursing_management: complication[0] === 'hypotension' ? ['monitor_vs', 'pause_uf', 'post_hd_nursing'] : ['monitor_vs', 'post_hd_nursing'],
+        health_education: ['nutrition', 'fluid_control'],
+        nephrologist: 'แพทย์จำลอง ข', dialysis_nurses: 'พยาบาลจำลอง ก',
+      };
+      const { rows: sess } = await db.query(insertSql('dialysis_sessions', session));
+      lastBw = post;
+
+      for (let h = 0; h <= 8; h++) {
+        const t = startHour * 60 + h * 30;
+        await db.query(insertSql('intradialytic_vitals', {
+          session_id: sess[0].id,
+          recorded_time: `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`,
+          bp_sys: between(110, 160), bp_dia: between(60, 90), pr: between(70, 95), rr: 18,
+          bfr_ml_min: session.blood_flow_ml_min, pv_mmhg: between(120, 200), tmp_mmhg: between(0, 90),
+          conductivity_ms_cm: 14.0, ufr: Math.round(totalUf / 4), total_uf_ml: Math.round((totalUf / 8) * h),
+          note: h === 0 ? 'Start HD' : null,
+        }));
+      }
+      if (s === 0) {
+        await db.query(insertSql('session_medications', { session_id: sess[0].id, drug_name: 'EPO (จำลอง)', dose: '4000 IU', route: 'SC' }));
       }
     }
   }

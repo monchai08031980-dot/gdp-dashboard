@@ -36,6 +36,19 @@ test('ทุกการสร้างและแก้ไขรอบฟอ�
   assert.equal(log[0].old_data.pre_weight_kg, 60.5);
   assert.equal(log[0].new_data.pre_weight_kg, 61.2);
 
+  // แถวย่อยของแบบฟอร์มก็ถูกบันทึกด้วย และดูรวมได้จาก session_id
+  const vital = await (await call(`/sessions/${session.id}/vitals`, 'POST', { recorded_time: '08:30', bp_sys: 130, bp_dia: 80 })).json();
+  assert.equal((await call(`/sessions/${session.id}/vitals/${vital.id}`, 'PATCH', { bp_sys: 95 })).status, 200);
+  const checklist = await call(`/sessions/${session.id}`, 'PATCH', { complications: ['hypotension'], nursing_management: ['pause_uf'] });
+  assert.equal(checklist.status, 200);
+  assert.equal((await call(`/sessions/${session.id}`, 'PATCH', { complications: ['not_on_form'] })).status, 400);
+  const all = await (await call(`/audit?session_id=${session.id}`)).json();
+  assert.deepEqual(all.map((a) => `${a.table_name}:${a.action}`), [
+    'dialysis_sessions:UPDATE', 'intradialytic_vitals:UPDATE', 'intradialytic_vitals:INSERT',
+    'dialysis_sessions:UPDATE', 'dialysis_sessions:INSERT',
+  ]);
+  assert.deepEqual(all[0].changed_fields, ['complications', 'nursing_management']);
+
   await withAudit('test-cleanup', 'ลบข้อมูลทดสอบ', async (db) => {
     await db.query('DELETE FROM dialysis_sessions WHERE id = $1', [session.id]);
     await db.query('DELETE FROM patients WHERE id = $1', [patient.id]);

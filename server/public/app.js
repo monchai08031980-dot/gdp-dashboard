@@ -1,44 +1,11 @@
-// หน้าบันทึกการฟอกเลือด: รายการรอบฟอก, แบบฟอร์ม 519, สัญญาณชีพ และประวัติการแก้ไข
-const $ = (id) => document.getElementById(id);
-const STATUS = { DRAFT: 'ร่าง', IN_PROGRESS: 'กำลังฟอก', COMPLETED: 'เสร็จสิ้น', CANCELLED: 'ยกเลิก' };
-const ACTION = { INSERT: 'สร้าง', UPDATE: 'แก้ไข', DELETE: 'ลบ' };
+// หน้าบันทึกการฟอกเลือด: รายการรอบฟอก, แบบฟอร์ม 519, บันทึกระหว่างฟอก, ยา และประวัติการแก้ไข
+import { SECTIONS, CHECKLISTS, VITAL_FIELDS, MEDICATION_FIELDS } from './form519.js';
 
-// [หัวข้อ, [[ฟิลด์, ป้ายกำกับ, ชนิด]]]
-const FORM_519 = [
-  ['ข้อมูลรอบฟอก', [
-    ['session_date', 'วันที่', 'date'], ['shift', 'รอบ', 'number'], ['bed_no', 'เตียง', 'number'],
-    ['machine_no', 'เครื่อง', 'text'], ['session_no', 'ครั้งที่', 'number'],
-    ['status', 'สถานะ', 'status'],
-  ]],
-  ['ก่อนฟอก', [
-    ['pre_weight_kg', 'น้ำหนักก่อน (kg)', 'number'], ['dry_weight_kg', 'น้ำหนักแห้ง (kg)', 'number'],
-    ['pre_bp_sys', 'BP ตัวบน', 'number'], ['pre_bp_dia', 'BP ตัวล่าง', 'number'],
-    ['pre_pulse', 'ชีพจร', 'number'], ['pre_temp_c', 'อุณหภูมิ (°C)', 'number'],
-    ['pre_rr', 'การหายใจ', 'number'], ['pre_o2sat', 'O2 sat (%)', 'number'],
-    ['pre_symptoms', 'อาการก่อนฟอก', 'textarea'],
-  ]],
-  ['คำสั่งการรักษา', [
-    ['dialyzer', 'ตัวกรอง', 'text'], ['dialyzer_reuse_no', 'ใช้ซ้ำครั้งที่', 'number'],
-    ['duration_min', 'เวลาฟอก (นาที)', 'number'], ['blood_flow_ml_min', 'QB (ml/min)', 'number'],
-    ['dialysate_flow_ml_min', 'QD (ml/min)', 'number'], ['dialysate_na', 'Na', 'number'],
-    ['dialysate_k', 'K', 'number'], ['dialysate_ca', 'Ca', 'number'], ['dialysate_hco3', 'HCO3', 'number'],
-    ['dialysate_temp_c', 'อุณหภูมิน้ำยา', 'number'], ['uf_goal_ml', 'UF เป้าหมาย (ml)', 'number'],
-    ['anticoagulant', 'สารกันเลือดแข็ง', 'text'], ['heparin_loading_iu', 'Heparin loading (IU)', 'number'],
-    ['heparin_maintenance_iu', 'Heparin maintenance (IU/h)', 'number'],
-    ['access_used', 'เส้นฟอกเลือด', 'text'], ['needle_size', 'ขนาดเข็ม', 'text'],
-  ]],
-  ['หลังฟอก', [
-    ['post_weight_kg', 'น้ำหนักหลัง (kg)', 'number'], ['post_bp_sys', 'BP ตัวบน', 'number'],
-    ['post_bp_dia', 'BP ตัวล่าง', 'number'], ['post_pulse', 'ชีพจร', 'number'],
-    ['post_temp_c', 'อุณหภูมิ (°C)', 'number'], ['actual_uf_ml', 'UF จริง (ml)', 'number'],
-    ['kt_v', 'Kt/V', 'number'], ['urr_pct', 'URR (%)', 'number'],
-  ]],
-  ['ยา ภาวะแทรกซ้อน และผู้รับผิดชอบ', [
-    ['medications', 'ยาที่ให้', 'textarea'], ['complications', 'ภาวะแทรกซ้อน', 'textarea'],
-    ['nursing_notes', 'บันทึกการพยาบาล', 'textarea'], ['physician_orders', 'คำสั่งแพทย์', 'textarea'],
-    ['nurse_name', 'พยาบาล', 'text'], ['physician_name', 'แพทย์', 'text'],
-  ]],
-];
+const $ = (id) => document.getElementById(id);
+const STATUS = Object.fromEntries(SECTIONS[0].fields.find((f) => f.name === 'status').options);
+const ACTION = { INSERT: 'สร้าง', UPDATE: 'แก้ไข', DELETE: 'ลบ' };
+const TABLE = { dialysis_sessions: 'แบบฟอร์ม', intradialytic_vitals: 'บันทึกระหว่างฟอก', session_medications: 'ยา', patients: 'ผู้ป่วย' };
+const ACCESS_SIDE = { LT: 'Lt', RT: 'Rt' };
 
 let current = null;
 
@@ -50,6 +17,7 @@ async function api(path, options = {}) {
   const reason = $('reason').value.trim();
   if (reason) headers['X-Edit-Reason'] = encodeURIComponent(reason);
   const res = await fetch('/api' + path, { ...options, headers });
+  if (res.status === 204) return null;
   const body = await res.json();
   if (!res.ok) throw new Error(body.error || res.statusText);
   return body;
@@ -57,66 +25,112 @@ async function api(path, options = {}) {
 
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const fmtTime = (t) => (t ? new Date(t).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '');
-const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('th-TH', { dateStyle: 'medium' }) : '');
+const fmtDate = (d) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { dateStyle: 'medium' }) : '');
+const hhmm = (t) => (t ? String(t).slice(0, 5) : '');
+const age = (birth, on) => {
+  if (!birth) return '';
+  const b = new Date(birth), d = new Date(on);
+  return d.getFullYear() - b.getFullYear() - (d < new Date(d.getFullYear(), b.getMonth(), b.getDate()) ? 1 : 0);
+};
+
+// ค่าที่แสดงในฟอร์ม -> ค่าที่ส่งให้ API
+function readField(form, field) {
+  if (field.type === 'checklist') {
+    return [...form.querySelectorAll(`input[name="${field.name}"]:checked`)].map((el) => el.value);
+  }
+  const value = form.elements[field.name].value;
+  if (value === '') return null;
+  if (field.type === 'bool') return value === 'true';
+  if (field.type === 'number' || field.name === 'dialysate_flow_ml_min') return Number(value);
+  return value;
+}
+
+function fieldValue(record, field) {
+  const v = record?.[field.name];
+  if (v === null || v === undefined) return field.type === 'checklist' ? [] : '';
+  if (field.type === 'time') return hhmm(v);
+  return field.type === 'checklist' ? v : String(v);
+}
+
+function renderInput(field, value) {
+  const n = field.name;
+  if (field.type === 'checklist') {
+    return `<div class="checks">${CHECKLISTS[n].map(([k, label]) => `
+      <label class="check"><input type="checkbox" name="${n}" value="${k}" ${value.includes(k) ? 'checked' : ''}>${esc(label)}</label>`).join('')}</div>`;
+  }
+  if (field.type === 'select' || field.type === 'bool') {
+    return `<select name="${n}"><option value=""></option>${field.options.map(([k, label]) =>
+      `<option value="${k}" ${k === value ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
+  }
+  if (field.type === 'textarea') return `<textarea name="${n}" rows="2">${esc(value)}</textarea>`;
+  return `<input name="${n}" type="${field.type}" ${field.type === 'number' ? 'step="any"' : ''} value="${esc(value)}">`;
+}
+
+function renderField(field, record) {
+  const wide = field.type === 'checklist' || field.type === 'textarea';
+  const tag = field.type === 'checklist' ? 'div' : 'label';
+  return `<${tag} class="field ${wide ? 'wide' : ''}"><span>${esc(field.label)}</span>${renderInput(field, fieldValue(record, field))}</${tag}>`;
+}
 
 async function loadSessions() {
   const date = $('date').value;
   const rows = await api('/sessions' + (date ? `?date=${date}` : ''));
   $('sessions').innerHTML = rows.map((s) => `
     <tr class="clickable" data-id="${s.id}">
-      <td>${fmtDate(s.session_date)}</td><td>${esc(s.shift)}</td><td>${esc(s.bed_no)}</td>
+      <td>${fmtDate(s.session_date)}</td><td>${esc(s.session_no)}</td><td>${esc(s.shift)}</td><td>${esc(s.bed_no)}</td>
       <td>${esc(s.hn)}</td><td>${esc(`${s.prefix || ''}${s.first_name} ${s.last_name}`)}</td>
-      <td>${esc(s.pre_weight_kg)} / ${esc(s.post_weight_kg)}</td><td>${esc(s.actual_uf_ml)}</td>
+      <td>${esc(s.pre_weight_kg)} / ${esc(s.post_bw_kg)}</td><td>${esc(s.total_uf_ml)}</td>
       <td><span class="badge">${STATUS[s.status] || s.status}</span></td>
-    </tr>`).join('') || '<tr><td colspan="8">ไม่มีรายการ</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="9">ไม่มีรายการ</td></tr>';
 }
 
-function renderForm(s) {
-  $('form').innerHTML = FORM_519.map(([legend, fields]) => `
-    <fieldset><legend>${legend}</legend>${fields.map(([name, label, type]) => {
-      let value = s[name] ?? '';
-      if (type === 'date' && value) value = String(value).slice(0, 10);
-      let input;
-      if (type === 'textarea') input = `<textarea name="${name}" rows="2">${esc(value)}</textarea>`;
-      else if (type === 'status') input = `<select name="${name}">${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${k === value ? 'selected' : ''}>${v}</option>`).join('')}</select>`;
-      else input = `<input name="${name}" type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${esc(value)}">`;
-      return `<label class="${type === 'textarea' ? 'wide' : ''}">${label}${input}</label>`;
-    }).join('')}</fieldset>`).join('');
+// ตารางแถวย่อย (บันทึกระหว่างฟอก / ยา) แก้ในแถวได้ และมีแถวว่างไว้เพิ่มรายการใหม่
+function renderRows(kind, fields, rows) {
+  const head = `<tr>${fields.map((f) => `<th>${esc(f.label)}</th>`).join('')}<th></th></tr>`;
+  const row = (r) => `<tr data-row="${r?.id || ''}">${fields.map((f) =>
+    `<td>${renderInput(f, fieldValue(r, f))}</td>`).join('')}
+    <td class="row-actions">${r
+      ? `<button type="button" class="ghost" data-act="save">บันทึก</button><button type="button" class="ghost danger" data-act="delete">ลบ</button>`
+      : `<button type="button" data-act="add">เพิ่ม</button>`}</td></tr>`;
+  $(kind).innerHTML = `<thead>${head}</thead><tbody>${rows.map(row).join('')}${row(null)}</tbody>`;
 }
 
 async function openSession(id) {
   current = await api('/sessions/' + id);
+  const patient = await api('/patients/' + current.patient_id);
   $('detail').hidden = false;
-  $('detail-title').textContent = `แบบบันทึกการฟอกเลือด (519) · ${current.hn} ${current.first_name} ${current.last_name}`;
+  $('detail-title').textContent = 'Hemodialysis sheet (แบบฟอร์ม 519)';
+  $('patient').innerHTML = `
+    <span><b>Name</b> ${esc(`${patient.prefix || ''}${patient.first_name} ${patient.last_name}`)}</span>
+    <span><b>Age</b> ${age(patient.birth_date, current.session_date)} yrs</span>
+    <span><b>HN</b> ${esc(patient.hn)}</span>
+    <span><b>Access</b> ${esc(patient.vascular_access)} ${esc(ACCESS_SIDE[patient.access_side] || '')}</span>
+    <span><b>สิทธิ</b> ${esc(patient.payer)}</span>`;
   $('msg').textContent = '';
-  renderForm(current);
-  $('vitals').innerHTML = current.vitals.map((v) => `
-    <tr><td>${fmtTime(v.recorded_at)}</td><td>${esc(v.bp_sys)}/${esc(v.bp_dia)}</td><td>${esc(v.pulse)}</td>
-    <td>${esc(v.blood_flow_ml_min)}</td><td>${esc(v.venous_pressure)}</td><td>${esc(v.arterial_pressure)}</td>
-    <td>${esc(v.tmp)}</td><td>${esc(v.uf_volume_ml)}</td></tr>`).join('') || '<tr><td colspan="8">ยังไม่มีบันทึก</td></tr>';
+  $('form').innerHTML = SECTIONS.map((s) => `
+    <fieldset><legend>${esc(s.title)}</legend>${s.fields.map((f) => renderField(f, current)).join('')}</fieldset>`).join('');
+  renderRows('vitals', VITAL_FIELDS, current.vitals);
+  renderRows('medications', MEDICATION_FIELDS, current.medications);
   await loadAudit();
-  $('detail').scrollIntoView({ behavior: 'smooth' });
 }
 
 async function loadAudit() {
-  const rows = await api(`/audit?table=dialysis_sessions&record_id=${current.id}`);
+  const rows = await api(`/audit?session_id=${current.id}`);
   $('audit').innerHTML = rows.map((a) => `
-    <tr><td>${fmtTime(a.changed_at)}</td><td>${ACTION[a.action]}</td><td>${esc(a.changed_by)}</td>
-    <td>${esc((a.changed_fields || []).join(', '))}</td><td>${esc(a.reason)}</td></tr>`).join('');
+    <tr><td>${fmtTime(a.changed_at)}</td><td>${ACTION[a.action]}</td><td>${TABLE[a.table_name] || a.table_name}</td>
+    <td>${esc(a.changed_by)}</td><td>${esc((a.changed_fields || []).join(', '))}</td><td>${esc(a.reason)}</td></tr>`).join('');
 }
 
-$('save').addEventListener('click', async () => {
-  if (!$('user').value.trim()) { $('msg').textContent = 'กรุณาระบุชื่อผู้บันทึกก่อน'; return; }
-  const changes = {};
-  for (const el of $('form').elements) {
-    if (!el.name) continue;
-    let before = current[el.name] ?? '';
-    if (el.type === 'date' && before) before = String(before).slice(0, 10);
-    if (String(before) !== el.value) changes[el.name] = el.value;
-  }
-  if (!Object.keys(changes).length) { $('msg').textContent = 'ไม่มีการเปลี่ยนแปลง'; return; }
+function needUser() {
+  if ($('user').value.trim()) return false;
+  $('msg').textContent = 'กรุณาระบุชื่อผู้บันทึกก่อน';
+  $('user').focus();
+  return true;
+}
+
+async function run(action) {
   try {
-    await api('/sessions/' + current.id, { method: 'PATCH', body: JSON.stringify(changes) });
+    await action();
     $('reason').value = '';
     await openSession(current.id);
     await loadSessions();
@@ -124,11 +138,43 @@ $('save').addEventListener('click', async () => {
   } catch (err) {
     $('msg').textContent = 'บันทึกไม่สำเร็จ: ' + err.message;
   }
+}
+
+$('save').addEventListener('click', () => {
+  if (needUser()) return;
+  const changes = {};
+  for (const field of SECTIONS.flatMap((s) => s.fields)) {
+    const value = readField($('form'), field);
+    const before = current[field.name] ?? null;
+    const same = field.type === 'checklist'
+      ? JSON.stringify([...value].sort()) === JSON.stringify([...(before || [])].sort())
+      : String(value ?? '') === fieldValue(current, field);
+    if (!same) changes[field.name] = value;
+  }
+  if (!Object.keys(changes).length) { $('msg').textContent = 'ไม่มีการเปลี่ยนแปลง'; return; }
+  run(() => api('/sessions/' + current.id, { method: 'PATCH', body: JSON.stringify(changes) }));
 });
+
+for (const [kind, fields] of [['vitals', VITAL_FIELDS], ['medications', MEDICATION_FIELDS]]) {
+  $(kind).addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn || needUser()) return;
+    const tr = btn.closest('tr');
+    const data = {};
+    for (const f of fields) {
+      const value = tr.querySelector(`[name="${f.name}"]`).value;
+      data[f.name] = value === '' ? null : f.type === 'number' ? Number(value) : value;
+    }
+    const base = `/sessions/${current.id}/${kind}`;
+    if (btn.dataset.act === 'add') run(() => api(base, { method: 'POST', body: JSON.stringify(data) }));
+    if (btn.dataset.act === 'save') run(() => api(`${base}/${tr.dataset.row}`, { method: 'PATCH', body: JSON.stringify(data) }));
+    if (btn.dataset.act === 'delete' && confirm('ลบรายการนี้?')) run(() => api(`${base}/${tr.dataset.row}`, { method: 'DELETE' }));
+  });
+}
 
 $('sessions').addEventListener('click', (e) => {
   const row = e.target.closest('tr[data-id]');
-  if (row) openSession(row.dataset.id);
+  if (row) openSession(row.dataset.id).then(() => $('detail').scrollIntoView({ behavior: 'smooth' }));
 });
 $('date').addEventListener('change', loadSessions);
 $('all').addEventListener('click', () => { $('date').value = ''; loadSessions(); });
