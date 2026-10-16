@@ -9,16 +9,16 @@ export const TABLE = {
 };
 
 export const ROLE = { NURSE: 'พยาบาล', NURSE_AIDE: 'ผู้ช่วยพยาบาล', DOCTOR: 'แพทย์', CLERK: 'เสมียน', OTHER: 'อื่นๆ' };
-// ผู้บันทึกบนเครื่องนี้ (ชื่อ + ตำแหน่ง) จำไว้ให้ครั้งถัดไป
-try {
-  $('user').value = localStorage.getItem('hemo.user') || $('user').value;
-  $('user-role').value = localStorage.getItem('hemo.user-role') || $('user-role').value;
-} catch {}
-$('user').addEventListener('change', () => { try { localStorage.setItem('hemo.user', $('user').value); } catch {} });
+// ผู้บันทึกเลือกเฉพาะตำแหน่ง (ยังไม่มีระบบล็อกอิน) เครื่องจะจำตำแหน่งไว้ให้ครั้งถัดไป
+// audit log จึงเก็บชื่อผู้บันทึกเป็นชื่อตำแหน่ง จนกว่าจะมีล็อกอินรายบุคคล
+try { $('user-role').value = localStorage.getItem('hemo.user-role') || $('user-role').value; } catch {}
 $('user-role').addEventListener('change', () => { try { localStorage.setItem('hemo.user-role', $('user-role').value); } catch {} });
-const userHeaders = () => ({ 'X-User-Name': encodeURIComponent($('user').value.trim()), 'X-User-Role': $('user-role').value });
-// ชื่อผู้บันทึกพร้อมตำแหน่ง สำหรับแสดงใน audit log
-export const byWho = (a) => `${a.changed_by}${ROLE[a.changed_by_role] ? ` (${ROLE[a.changed_by_role]})` : ''}`;
+const userHeaders = () => ({ 'X-User-Name': encodeURIComponent(ROLE[$('user-role').value] || ''), 'X-User-Role': $('user-role').value });
+// ผู้บันทึกใน audit log: ชื่อตำแหน่ง หรือชื่อพร้อมตำแหน่งสำหรับข้อมูลเดิมที่มีชื่อคน
+export const byWho = (a) => {
+  const role = ROLE[a.changed_by_role];
+  return !role || a.changed_by === role ? a.changed_by : `${a.changed_by} (${role})`;
+};
 
 // รายการแบบแบ่งหน้า: คืนแถวพร้อมจำนวนทั้งหมดจาก header X-Total-Count
 export async function apiList(path) {
@@ -90,11 +90,9 @@ export function renderField(field, record) {
 }
 
 export function needUser(msgId) {
-  const name = $('user').value.trim();
-  const role = $('user-role').value;
-  if (name && role) return false;
-  $(msgId).textContent = !role && !name ? 'กรุณาเลือกตำแหน่งและใส่ชื่อผู้บันทึกก่อน' : !role ? 'กรุณาเลือกตำแหน่งผู้บันทึกก่อน' : 'กรุณาระบุชื่อผู้บันทึกก่อน';
-  (role ? $('user') : $('user-role')).focus();
+  if ($('user-role').value) return false;
+  $(msgId).textContent = 'กรุณาเลือกผู้บันทึกก่อน';
+  $('user-role').focus();
   return true;
 }
 
