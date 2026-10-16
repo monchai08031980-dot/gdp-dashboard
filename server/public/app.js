@@ -1,7 +1,7 @@
 // หน้าบันทึกการฟอกเลือด: รายการรอบฟอก, แบบฟอร์ม 519, บันทึกระหว่างฟอก, ยา และประวัติการแก้ไข
 import { SECTIONS, VITAL_FIELDS, MEDICATION_FIELDS } from './form519.js';
 import {
-  $, api, apiList, apiUpload, normalizeHm, esc, fmtTime, fmtDate, age, readField, fieldValue, renderInput, renderField, needUser, byWho, ACTION, TABLE,
+  $, api, apiList, apiUpload, normalizeHm, hhmm, esc, fmtTime, fmtDate, age, readField, fieldValue, renderInput, renderField, needUser, byWho, ACTION, TABLE,
 } from './common.js';
 
 const STATUS = Object.fromEntries(SECTIONS[0].fields.find((f) => f.name === 'status').options);
@@ -135,10 +135,19 @@ let readerEnabled = null;
 const nowHm = () => new Date().toTimeString().slice(0, 5);
 const capMsg = (text) => { $('cap-msg').textContent = text; };
 
-function renderReview(values = {}, unread = []) {
-  $('cap-review').innerHTML = `<thead><tr>${CAPTURE_FIELDS.map((f) => `<th>${esc(f.label)}</th>`).join('')}</tr></thead>
-    <tbody><tr>${CAPTURE_FIELDS.map((f) => `<td>${renderInput(f, values[f.name] ?? '')}</td>`).join('')}</tr></tbody>`;
-  for (const name of unread) $('cap-review').querySelector(`[name="${name}"]`)?.classList.add('unread');
+// ตารางตรวจค่าที่อ่านได้ แถวละหนึ่งเวลา ติ๊กเลือกแถวที่จะบันทึก ช่องที่อ่านไม่ได้เป็นสีเหลือง
+// แถวที่มีเวลาเดียวกันอยู่แล้วในบันทึกระหว่างฟอกจะไม่ถูกเลือกไว้ กันบันทึกซ้ำ
+function renderReview(rows) {
+  const have = new Set((current?.vitals || []).map((v) => hhmm(v.recorded_time)));
+  $('cap-review').innerHTML = `<thead><tr><th>บันทึก</th>${CAPTURE_FIELDS.map((f) => `<th>${esc(f.label)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map((r) => {
+      const dup = r.values.recorded_time && have.has(r.values.recorded_time);
+      return `<tr><td><label class="check"><input type="checkbox" data-pick ${dup ? '' : 'checked'}>${dup ? '<span class="badge">มีแล้ว</span>' : ''}</label></td>
+        ${CAPTURE_FIELDS.map((f) => `<td>${renderInput(f, r.values[f.name] ?? '')}</td>`).join('')}</tr>`;
+    }).join('')}</tbody>`;
+  [...$('cap-review').tBodies[0].rows].forEach((tr, i) => {
+    for (const f of CAPTURE_FIELDS) if (rows[i].values[f.name] == null) tr.querySelector(`[name="${f.name}"]`)?.classList.add('unread');
+  });
 }
 
 function closeCapture() {
@@ -230,7 +239,7 @@ async function useImage(file) {
   $('cap-status').textContent = readerEnabled ? 'กด "อ่านค่า" เพื่อให้ระบบอ่านค่าจากภาพ' : '';
   capMsg('');
   // ถ้าระบบอ่านภาพเปิดอยู่ ช่อง Time รอค่าจากนาฬิกาบนเครื่อง ไม่ใส่เวลาของอุปกรณ์แทน
-  renderReview(readerEnabled ? {} : { recorded_time: nowHm() });
+  renderReview([{ values: readerEnabled ? {} : { recorded_time: nowHm() } }]);
   if (readerEnabled) readScreen();
 }
 
@@ -240,14 +249,25 @@ async function readScreen() {
   $('cap-status').textContent = 'กำลังอ่านค่าจากภาพ (อ่านสองรอบเพื่อตรวจซ้ำ อาจใช้เวลาถึง 1 นาที)...';
   $('cap-warn').innerHTML = '';
   try {
-    const { values, warnings, notes } = await apiUpload(`/sessions/${current.id}/vitals/read-screen`, captureImage);
-    const unread = CAPTURE_FIELDS.filter((f) => values[f.name] == null).map((f) => f.name);
-    renderReview(values, unread);
-    const unreadLabels = CAPTURE_FIELDS.filter((f) => unread.includes(f.name)).map((f) => f.label);
-    $('cap-status').textContent = unread.length
-      ? `อ่านได้แน่นอน ${CAPTURE_FIELDS.length - unread.length} ค่า ช่องสีเหลือง (${unreadLabels.join(', ')}) กรุณากรอกเองจากหน้าจอเครื่อง`
-      : 'อ่านได้ครบทุกค่า';
-    $('cap-warn').innerHTML = [...warnings, ...(notes ? [notes] : []), 'กรุณาตรวจค่ากับหน้าจอเครื่องทุกครั้งก่อนบันทึก']
+    const { rows, warnings, notes } = await apiUpload(`/sessions/${current.id}/vitals/read-screen`, captureImage);
+    // ลงทุกแถวที่อ่านได้บนหน้าจอเครื่อง เรียงตามเวลา
+    const extra = [];
+    let shown = rows;
+    $('cap-status').textContent = rows.length > 1 ? `อ่านได้ ${rows.length} แถวจากหน้าจอเครื่อง` : '';
+    if (!shown.length) {
+      $('cap-status').textContent = 'ไม่พบแถวที่อ่านได้บนหน้าจอ';
+      shown = [{ values: {} }];
+    }
+    renderReview(shown);
+    const dups = $('cap-review').querySelectorAll('[data-pick]:not(:checked)').length;
+    if (dups) extra.push(`${dups} แถวมีเวลานี้อยู่แล้วในบันทึกระหว่างฟอก จึงไม่ได้ติ๊กไว้ กันบันทึกซ้ำ`);
+    const unread = shown.reduce((n, r) => n + CAPTURE_FIELDS.filter((f) => r.values[f.name] == null).length, 0);
+    if (rows.length === 1) {
+      $('cap-status').textContent = unread ? `ช่องสีเหลือง ${unread} ช่องอ่านไม่ได้แน่นอน กรุณากรอกเองจากหน้าจอเครื่อง` : 'อ่านได้ครบทุกค่า';
+    } else if (unread) {
+      $('cap-status').textContent += ` · ช่องสีเหลือง ${unread} ช่องกรุณากรอกเอง`;
+    }
+    $('cap-warn').innerHTML = [...extra, ...warnings, ...(notes ? [notes] : []), 'กรุณาตรวจค่ากับหน้าจอเครื่องทุกครั้งก่อนบันทึก']
       .map((w) => `<li>${esc(w)}</li>`).join('');
   } catch (err) {
     $('cap-status').textContent = 'อ่านค่าไม่สำเร็จ: ' + err.message;
@@ -277,17 +297,25 @@ $('cap-device').addEventListener('change', (e) => pickImage(e.target));
 $('cap-read').addEventListener('click', readScreen);
 $('cap-save').addEventListener('click', async () => {
   if (needUser('cap-msg')) return;
-  const data = {};
-  for (const f of CAPTURE_FIELDS) {
-    const value = $('cap-review').querySelector(`[name="${f.name}"]`).value.trim();
-    data[f.name] = value === '' ? null : f.type === 'number' ? Number(value) : f.type === 'time' ? (normalizeHm(value) ?? value) : value;
+  const picked = [];
+  for (const tr of $('cap-review').tBodies[0].rows) {
+    if (!tr.querySelector('[data-pick]').checked) continue;
+    const data = {};
+    for (const f of CAPTURE_FIELDS) {
+      const value = tr.querySelector(`[name="${f.name}"]`).value.trim();
+      data[f.name] = value === '' ? null : f.type === 'number' ? Number(value) : f.type === 'time' ? (normalizeHm(value) ?? value) : value;
+    }
+    if (CAPTURE_FIELDS.every((f) => f.name === 'recorded_time' || data[f.name] == null)) continue;
+    if (!data.recorded_time) { capMsg('กรุณาใส่เวลาให้ทุกแถวที่เลือก'); return; }
+    picked.push({ ...data, note: CAPTURE_NOTE });
   }
-  if (!data.recorded_time) { capMsg('กรุณาใส่เวลา'); return; }
-  data.note = CAPTURE_NOTE;
-  if (CAPTURE_FIELDS.every((f) => f.name === 'recorded_time' || data[f.name] == null)) { capMsg('ยังไม่มีค่าที่จะบันทึก'); return; }
-  if (await run(() => api(`/sessions/${current.id}/vitals`, { method: 'POST', body: JSON.stringify(data) }))) {
+  if (!picked.length) { capMsg('ยังไม่มีแถวที่จะบันทึก'); return; }
+  const ok = await run(async () => {
+    for (const data of picked) await api(`/sessions/${current.id}/vitals`, { method: 'POST', body: JSON.stringify(data) });
+  });
+  if (ok) {
     closeCapture();
-    $('msg').textContent = 'บันทึกค่าจากภาพหน้าจอลงบันทึกระหว่างฟอกแล้ว';
+    $('msg').textContent = `บันทึกค่าจากภาพหน้าจอลงบันทึกระหว่างฟอกแล้ว ${picked.length} แถว`;
   } else {
     capMsg($('msg').textContent);
   }
