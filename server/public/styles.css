@@ -182,3 +182,20 @@ button.link { background: none; border: none; padding: 0; color: var(--accent); 
 .p-shift-form .field.wide { grid-column: auto; }
 @media (max-width: 560px) { .p-shift-form { grid-template-columns: 1fr; } }
 .p-shift-note { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 0.9em; }
+
+/* ถ่ายภาพหน้าจอเครื่องฟอก แล้วอ่านค่าเข้าบันทึกระหว่างฟอก */
+.vitals-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.vitals-head h3 { margin-right: auto; }
+.capture { border: 1px solid var(--accent); border-radius: 8px; padding: 12px; margin-bottom: 10px; background: #fbfeff; }
+.cap-hint { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+.cap-body { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 12px; margin-top: 10px; align-items: start; }
+.cap-body img { width: 100%; border: 1px solid var(--line); border-radius: 6px; background: #000; }
+.cap-side { display: grid; gap: 10px; min-width: 0; }
+.cap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.cap-grid .field.wide { grid-column: 1 / -1; }
+.cap-status { font-size: 13px; color: var(--muted); }
+#cap-review input.unread { border-color: #d97706; background: var(--warn-bg); }
+.cap-warn { margin: 0; padding-left: 18px; font-size: 13px; color: var(--warn-text); }
+.cap-warn:empty { display: none; }
+#cap-msg { font-size: 13px; color: var(--muted); }
+@media (max-width: 720px) { .cap-body { grid-template-columns: 1fr; } }

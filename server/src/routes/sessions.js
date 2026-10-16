@@ -1,6 +1,7 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { pool, withAudit } from '../db.js';
 import { pick, insertSql, updateSql } from '../crud.js';
+import { readMachineScreen, imageType } from '../screenReader.js';
 import { SESSION_COLUMNS, VITAL_FIELDS, MEDICATION_FIELDS } from '../../public/form519.js';
 
 const VITAL_COLUMNS = VITAL_FIELDS.map((f) => f.name);
@@ -58,6 +59,20 @@ router.patch('/:id', async (req, res) => {
   if (!row) return res.status(404).json({ error: 'ไม่พบรอบการฟอก' });
   res.json(row);
 });
+
+// อ่านค่าจากภาพหน้าจอเครื่องฟอก ยังไม่บันทึกอะไร ส่งค่ากลับให้พยาบาลตรวจแล้วกดบันทึกเองผ่าน POST /:id/vitals
+router.post(
+  '/:id/vitals/read-screen',
+  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: 10 * 1024 * 1024 }),
+  async (req, res) => {
+    if (!req.actor) return res.status(400).json({ error: 'กรุณาเลือกตำแหน่งผู้บันทึก' });
+    const type = Buffer.isBuffer(req.body) ? imageType(req.body) : null;
+    if (!type) return res.status(415).json({ error: 'รองรับเฉพาะภาพ JPG, PNG หรือ WEBP' });
+    const { rows } = await pool.query('SELECT id FROM dialysis_sessions WHERE id = $1', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'ไม่พบรอบการฟอก' });
+    res.json(await readMachineScreen(req.body, type));
+  },
+);
 
 // แถวย่อยของแบบฟอร์ม: บันทึกระหว่างฟอก และยาระหว่างฟอก
 for (const [path, table, columns] of [

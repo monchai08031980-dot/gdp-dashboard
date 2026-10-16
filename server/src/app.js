@@ -5,6 +5,7 @@ import sessions from './routes/sessions.js';
 import audit from './routes/audit.js';
 import { schedule, shifts } from './routes/schedule.js';
 import { ROLES } from './db.js';
+import { screenReaderEnabled } from './screenReader.js';
 
 export const app = express();
 app.use(express.json());
@@ -25,7 +26,7 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, screen_reader: screenReaderEnabled() }));
 app.use('/api/patients', patients);
 app.use('/api/sessions', sessions);
 app.use('/api/audit', audit);

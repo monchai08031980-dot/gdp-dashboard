@@ -62,7 +62,35 @@
         <button id="save">บันทึกแบบฟอร์ม</button>
         <span id="msg"></span>
       </div>
-      <h3>บันทึกระหว่างฟอก</h3>
+      <div class="vitals-head">
+        <h3>บันทึกระหว่างฟอก</h3>
+        <button type="button" id="cap-open" class="ghost">📷 การถ่ายภาพจากหน้าจอ</button>
+      </div>
+      <div id="cap" class="capture" hidden>
+        <div class="actions">
+          <label class="file-button">📷 ถ่ายหน้าจอเครื่องฟอกไต
+            <input type="file" id="cap-camera" accept="image/*" capture="environment"></label>
+          <label class="file-button ghost">🖼️ เลือกไฟล์จากเครื่อง
+            <input type="file" id="cap-file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"></label>
+          <button type="button" id="cap-close" class="ghost">ปิด</button>
+        </div>
+        <p class="cap-hint" id="cap-hint"></p>
+        <div class="cap-body" id="cap-body" hidden>
+          <img id="cap-img" alt="ภาพหน้าจอเครื่องฟอกไต">
+          <div class="cap-side">
+            <div class="actions">
+              <button type="button" id="cap-read">อ่านค่าจากภาพ</button>
+              <span id="cap-status" class="cap-status"></span>
+            </div>
+            <div id="cap-review" class="cap-grid"></div>
+            <ul id="cap-warn" class="cap-warn"></ul>
+            <div class="actions">
+              <button type="button" id="cap-save">บันทึกลงบันทึกระหว่างฟอก</button>
+              <span id="cap-msg"></span>
+            </div>
+          </div>
+        </div>
+      </div>
       <table class="rows" id="vitals"></table>
       <h3>EPO / Medication during HD</h3>
       <table class="rows" id="medications"></table>

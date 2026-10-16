@@ -1,7 +1,7 @@
 // หน้าบันทึกการฟอกเลือด: รายการรอบฟอก, แบบฟอร์ม 519, บันทึกระหว่างฟอก, ยา และประวัติการแก้ไข
 import { SECTIONS, VITAL_FIELDS, MEDICATION_FIELDS } from './form519.js';
 import {
-  $, api, apiList, esc, fmtTime, fmtDate, age, readField, fieldValue, renderInput, renderField, needUser, byWho, ACTION, TABLE,
+  $, api, apiList, apiUpload, esc, fmtTime, fmtDate, age, readField, fieldValue, renderInput, renderField, needUser, byWho, ACTION, TABLE,
 } from './common.js';
 
 const STATUS = Object.fromEntries(SECTIONS[0].fields.find((f) => f.name === 'status').options);
@@ -64,6 +64,7 @@ async function openSession(id) {
   $('form').innerHTML = SECTIONS.map((s) => `
     <fieldset><legend>${esc(s.title)}</legend>${s.fields.map((f) => renderField(f, current)).join('')}</fieldset>`).join('');
   renderRows('vitals', VITAL_FIELDS, current.vitals);
+  if (!$('cap').hidden && $('cap').dataset.session !== current.id) closeCapture();
   renderRows('medications', MEDICATION_FIELDS, current.medications);
   await loadAudit();
 }
@@ -82,8 +83,10 @@ async function run(action) {
     await openSession(current.id);
     await loadSessions();
     $('msg').textContent = 'บันทึกแล้ว';
+    return true;
   } catch (err) {
     $('msg').textContent = 'บันทึกไม่สำเร็จ: ' + err.message;
+    return false;
   }
 }
 
@@ -118,6 +121,117 @@ for (const [kind, fields] of [['vitals', VITAL_FIELDS], ['medications', MEDICATI
     if (btn.dataset.act === 'delete' && confirm('ลบรายการนี้?')) run(() => api(`${base}/${tr.dataset.row}`, { method: 'DELETE' }));
   });
 }
+
+// ---------------------------------------------------------------------------
+// การถ่ายภาพจากหน้าจอเครื่องฟอก: ถ่ายหรือเลือกภาพ อ่านค่า ให้พยาบาลตรวจ แล้วบันทึกเป็นแถวใหม่
+// ภาพใช้อ่านค่าอย่างเดียว ไม่ได้เก็บไว้ในระบบ แถวที่บันทึกผ่าน API เดิมจึงมี audit log เหมือนกรอกเอง
+// ---------------------------------------------------------------------------
+const CAPTURE_FIELDS = VITAL_FIELDS.filter((f) => ['recorded_time', 'bp_sys', 'bp_dia', 'pr', 'rr', 'bfr_ml_min', 'pv_mmhg', 'tmp_mmhg', 'conductivity_ms_cm', 'note'].includes(f.name));
+const CAPTURE_NOTE = 'อ่านจากภาพหน้าจอเครื่อง';
+let captureImage = null;
+let readerEnabled = null;
+
+const nowHm = () => new Date().toTimeString().slice(0, 5);
+const capMsg = (text) => { $('cap-msg').textContent = text; };
+
+function renderReview(values = {}, unread = []) {
+  $('cap-review').innerHTML = CAPTURE_FIELDS.map((f) =>
+    `<label class="field ${f.name === 'note' ? 'wide' : ''}"><span>${esc(f.label)}</span>${renderInput(f, values[f.name] ?? '')}</label>`).join('');
+  for (const name of unread) $('cap-review').querySelector(`[name="${name}"]`)?.classList.add('unread');
+}
+
+function closeCapture() {
+  $('cap').hidden = true;
+  $('cap-body').hidden = true;
+  captureImage = null;
+  $('cap-img').removeAttribute('src');
+}
+
+// ย่อภาพให้ด้านยาวไม่เกิน 1600 px แล้วแปลงเป็น JPEG เพื่อส่งเร็วและไม่ติดขนาดไฟล์
+async function toJpeg(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale) });
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+  return new File([blob], 'machine-screen.jpg', { type: 'image/jpeg' });
+}
+
+async function pickImage(input) {
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { capMsg('กรุณาเลือกไฟล์ภาพ'); return; }
+  try {
+    captureImage = await toJpeg(file);
+  } catch {
+    capMsg('เปิดภาพนี้ไม่ได้ กรุณาถ่ายหรือเลือกภาพใหม่');
+    return;
+  }
+  $('cap-img').src = URL.createObjectURL(captureImage);
+  $('cap-body').hidden = false;
+  $('cap-warn').innerHTML = '';
+  $('cap-status').textContent = readerEnabled ? 'กด "อ่านค่า" เพื่อให้ระบบอ่านค่าจากภาพ' : '';
+  capMsg('');
+  renderReview({ recorded_time: nowHm(), note: CAPTURE_NOTE });
+  if (readerEnabled) readScreen();
+}
+
+async function readScreen() {
+  if (!captureImage || needUser('cap-msg')) return;
+  $('cap-read').disabled = true;
+  $('cap-status').textContent = 'กำลังอ่านค่าจากภาพ...';
+  $('cap-warn').innerHTML = '';
+  try {
+    const { values, missing, warnings, notes } = await apiUpload(`/sessions/${current.id}/vitals/read-screen`, captureImage);
+    const unread = CAPTURE_FIELDS.filter((f) => f.name !== 'note' && values[f.name] == null).map((f) => f.name);
+    if (values.recorded_time == null) values.recorded_time = nowHm();
+    renderReview({ ...values, note: CAPTURE_NOTE }, unread);
+    $('cap-status').textContent = missing.length
+      ? `อ่านได้ ${CAPTURE_FIELDS.length - 1 - unread.length} ค่า ช่องสีเหลืองอ่านไม่ได้ (${missing.join(', ')}) กรุณากรอกเอง`
+      : 'อ่านได้ครบทุกค่า';
+    $('cap-warn').innerHTML = [...warnings, ...(notes ? [notes] : []), 'กรุณาตรวจค่ากับหน้าจอเครื่องทุกครั้งก่อนบันทึก']
+      .map((w) => `<li>${esc(w)}</li>`).join('');
+  } catch (err) {
+    $('cap-status').textContent = 'อ่านค่าไม่สำเร็จ: ' + err.message;
+  } finally {
+    $('cap-read').disabled = false;
+  }
+}
+
+$('cap-open').addEventListener('click', async () => {
+  $('cap').hidden = false;
+  $('cap').dataset.session = current.id;
+  capMsg('');
+  if (readerEnabled === null) {
+    readerEnabled = await fetch('/api/health').then((r) => r.json()).then((h) => Boolean(h.screen_reader)).catch(() => false);
+  }
+  $('cap-read').hidden = !readerEnabled;
+  $('cap-hint').textContent = readerEnabled
+    ? 'ถ่ายภาพหน้าจอเครื่องให้เห็นตัวเลขชัด ระบบจะอ่านค่าให้ แล้วพยาบาลตรวจและแก้ก่อนกดบันทึก ภาพไม่ถูกเก็บในระบบ'
+    : 'ยังไม่ได้เปิดใช้ระบบอ่านภาพอัตโนมัติ ถ่ายหรือเลือกภาพแล้วกรอกค่าตามภาพได้เลย';
+});
+$('cap-close').addEventListener('click', closeCapture);
+$('cap-camera').addEventListener('change', (e) => pickImage(e.target));
+$('cap-file').addEventListener('change', (e) => pickImage(e.target));
+$('cap-read').addEventListener('click', readScreen);
+$('cap-save').addEventListener('click', async () => {
+  if (needUser('cap-msg')) return;
+  const data = {};
+  for (const f of CAPTURE_FIELDS) {
+    const value = $('cap-review').querySelector(`[name="${f.name}"]`).value.trim();
+    data[f.name] = value === '' ? null : f.type === 'number' ? Number(value) : value;
+  }
+  if (!data.recorded_time) { capMsg('กรุณาใส่เวลา'); return; }
+  if (CAPTURE_FIELDS.every((f) => f.name === 'recorded_time' || f.name === 'note' || data[f.name] == null)) { capMsg('ยังไม่มีค่าที่จะบันทึก'); return; }
+  if (await run(() => api(`/sessions/${current.id}/vitals`, { method: 'POST', body: JSON.stringify(data) }))) {
+    closeCapture();
+    $('msg').textContent = 'บันทึกค่าจากภาพหน้าจอลงบันทึกระหว่างฟอกแล้ว';
+  } else {
+    capMsg($('msg').textContent);
+  }
+});
 
 $('sessions').addEventListener('click', (e) => {
   const row = e.target.closest('tr[data-id]');
