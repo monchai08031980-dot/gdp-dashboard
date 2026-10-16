@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { pool, withAudit } from '../src/db.js';
 import { app } from '../src/app.js';
 import { setScreenReader } from '../src/screenReader.js';
-import { reconcileReads } from '../public/screenRead.js';
+import { reconcileReads, readClock } from '../public/screenRead.js';
 
 const server = app.listen(0);
 const base = `http://localhost:${server.address().port}/api`;
@@ -79,4 +79,19 @@ test('รวมผลอ่าน: ค่าต้องตรงกันทุ
   assert.equal(out.notes, 'จอสะท้อนแสง');
   assert.ok(out.warnings.some((w) => w.startsWith('Time อ่านได้ไม่ตรงกัน')));
   assert.ok(out.warnings.some((w) => w.startsWith('BP 80/120')));
+});
+
+test('อ่านนาฬิกาเครื่อง: AM/PM, แบบ 12 ชั่วโมง และเวลาที่ไม่ใช่นาฬิกา', () => {
+  assert.equal(readClock({ time_raw: '4:52 PM', recorded_time: '04:52' }), '16:52');
+  assert.equal(readClock({ time_raw: '12:05 am' }), '00:05');
+  assert.equal(readClock({ time_raw: '16:52:30' }), '16:52');
+  assert.equal(readClock({ time_raw: '9:15' }), '09:15'); // ไม่มี AM/PM ถือตามที่เห็น ไม่เดาเช้า/บ่าย
+  assert.equal(readClock({ time_raw: null, recorded_time: null }), null);
+  const base = { bp_sys: 120, bp_dia: 70, notes: '' };
+  // ตัวเลข 03:45 (เวลาที่เหลือ) ห่างจากเวลาจริงมาก ไม่เติมให้
+  const far = reconcileReads([{ ...base, time_raw: '03:45' }, { ...base, time_raw: '03:45' }], { now: '16:52' });
+  assert.equal(far.values.recorded_time, null);
+  assert.match(far.warnings[0], /^Time อ่านได้ 03:45 ห่างจากเวลาปัจจุบัน/);
+  const ok = reconcileReads([{ ...base, time_raw: '4:51 PM' }, { ...base, time_raw: '16:51' }], { now: '16:52' });
+  assert.equal(ok.values.recorded_time, '16:51');
 });

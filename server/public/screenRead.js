@@ -19,7 +19,12 @@ export const SCREEN_READS = 2;
 
 export const SCREEN_PROMPT = `ภาพนี้คือภาพถ่ายหน้าจอเครื่องฟอกไต (hemodialysis machine) ระหว่างการฟอก
 อ่านตัวเลขที่แสดงอยู่บนหน้าจอจริงเท่านั้น ทีละตัวอย่างระมัดระวัง:
-- recorded_time: เวลาปัจจุบัน (นาฬิกา) บนหน้าจอ รูปแบบ HH:MM 24 ชั่วโมง ไม่ใช่เวลาที่เหลือ (remaining) หรือเวลาที่ฟอกไปแล้ว
+- time_raw: ข้อความนาฬิกาของเครื่องตามที่เห็นบนจอทุกตัวอักษร รวม AM/PM ถ้ามี เช่น "16:52" หรือ "4:52 PM"
+  นาฬิกามักอยู่มุมบนหรือแถบสถานะของจอ เป็นเวลาของวัน (ชั่วโมง:นาที)
+  ห้ามใช้เวลาการฟอก ได้แก่ Treatment time, Therapy time, Elapsed, Remaining, Time left, Rest time, Duration, Dialysis time
+  หรือตัวเลขที่มีหน่วย h/min หรือ ชม./นาที ซึ่งเป็นเวลาที่ฟอกไปแล้วหรือเวลาที่เหลือ ไม่ใช่นาฬิกา
+  ถ้าบนจอไม่มีนาฬิกาที่แน่ใจว่าเป็นเวลาของวัน ให้ time_raw และ recorded_time เป็น null
+- recorded_time: เวลาเดียวกับ time_raw แปลงเป็น HH:MM 24 ชั่วโมง (4:52 PM เป็น 16:52)
 - bp_sys / bp_dia: ความดันโลหิตจากการวัดครั้งล่าสุด (mmHg) เช่น 128/76 คือ bp_sys 128 bp_dia 76
 - pr: ชีพจร (pulse, PR, HR ครั้ง/นาที) มักแสดงคู่กับความดัน
 - rr: อัตราการหายใจ (ครั้ง/นาที) เครื่องส่วนใหญ่ไม่มีค่านี้ ถ้าไม่มีให้เป็น null
@@ -33,30 +38,54 @@ export const SCREEN_PROMPT = `ภาพนี้คือภาพถ่าย�
 ห้ามสลับค่าตั้ง (set/target/limit) กับค่าที่วัดได้จริง ให้ใช้ค่าที่วัดได้จริง
 notes: บอกสั้น ๆ เป็นภาษาไทยถ้ามีค่าที่อ่านไม่ชัดหรือมีสัญญาณเตือนบนหน้าจอ ถ้าไม่มีให้เป็นค่าว่าง
 ตอบเป็น JSON อย่างเดียว ตัวอย่าง:
-{"recorded_time":"10:42","bp_sys":128,"bp_dia":76,"pr":80,"rr":null,"bfr_ml_min":300,"pv_mmhg":150,"tmp_mmhg":80,"conductivity_ms_cm":14.0,"ufr":600,"total_uf_ml":1250,"notes":""}`;
+{"time_raw":"10:42","recorded_time":"10:42","bp_sys":128,"bp_dia":76,"pr":80,"rr":null,"bfr_ml_min":300,"pv_mmhg":150,"tmp_mmhg":80,"conductivity_ms_cm":14.0,"ufr":600,"total_uf_ml":1250,"notes":""}`;
 
 const toNumber = (v) => {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   if (typeof v === 'string' && /^\s*-?\d+(\.\d+)?\s*$/.test(v)) return Number(v);
   return null;
 };
-const toTime = (v) => {
-  const m = typeof v === 'string' ? v.trim().match(/^(\d{1,2})[:.](\d{2})/) : null;
-  return m && Number(m[1]) < 24 && Number(m[2]) < 60 ? `${m[1].padStart(2, '0')}:${m[2]}` : null;
-};
+const minutes = (hm) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5));
+const gap = (a, b) => { const d = Math.abs(minutes(a) - minutes(b)); return Math.min(d, 1440 - d); };
+const hm = (h, m) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+// อ่านนาฬิกาจาก time_raw ก่อน (รู้ AM/PM) แล้วจึงใช้ recorded_time
+// ไม่มี AM/PM ถือเป็นแบบ 24 ชั่วโมงตามที่เห็น ไม่เดาเช้า/บ่าย (3:45 อาจเป็นเวลาที่เหลือ ไม่ใช่ 15:45)
+export function readClock(read) {
+  for (const text of [read?.time_raw, read?.recorded_time]) {
+    const m = typeof text === 'string' ? text.trim().match(/(\d{1,2})\s*[:.]\s*(\d{2})(?:\s*[:.]\s*\d{2})?\s*(a\.?m\.?|p\.?m\.?)?/i) : null;
+    if (!m) continue;
+    let h = Number(m[1]);
+    const min = Number(m[2]);
+    const ampm = m[3]?.toLowerCase().replace(/\./g, '');
+    if (min > 59 || h > 23) continue;
+    if (ampm) {
+      if (h < 1 || h > 12) continue;
+      h = (h % 12) + (ampm === 'pm' ? 12 : 0);
+    }
+    return hm(h, min);
+  }
+  return null;
+}
 
 // รวมผลอ่านหลายครั้ง คืน { values, missing, warnings, notes }
-export function reconcileReads(reads) {
+// now: เวลาปัจจุบันของอุปกรณ์ที่ถ่าย (HH:MM) ใช้ตรวจว่าเวลาที่อ่านได้เป็นนาฬิกาจริง
+export function reconcileReads(reads, { now } = {}) {
   const values = {};
   const missing = [];
   const warnings = [];
   const notes = [...new Set(reads.map((r) => (typeof r?.notes === 'string' ? r.notes.trim().slice(0, 300) : '')).filter(Boolean))];
 
-  const times = reads.map((r) => toTime(r?.recorded_time));
+  const validNow = typeof now === 'string' && /^\d{2}:\d{2}$/.test(now) ? now : null;
+  const times = reads.map((r) => readClock(r));
   values.recorded_time = times.every((t) => t && t === times[0]) ? times[0] : null;
   if (!values.recorded_time) {
     missing.push('Time');
-    if (times.filter(Boolean).length > 1 && new Set(times).size > 1) warnings.push(`Time อ่านได้ไม่ตรงกัน (${times.join(' / ')}) กรุณาตรวจจากเครื่อง`);
+    if (times.some(Boolean)) warnings.push(`Time อ่านได้ไม่ตรงกัน (${times.map((t) => t ?? '-').join(' / ')}) ไม่ได้เติมให้ กรุณาดูนาฬิกาบนเครื่อง`);
+  } else if (validNow && gap(values.recorded_time, validNow) > 120) {
+    // ห่างจากเวลาปัจจุบันเกิน 2 ชั่วโมง มักเป็นเวลาฟอกหรือเวลาที่เหลือ ไม่ใช่นาฬิกา
+    warnings.push(`Time อ่านได้ ${values.recorded_time} ห่างจากเวลาปัจจุบัน (${validNow}) มาก อาจเป็นเวลาฟอกหรือเวลาที่เหลือ ไม่ได้เติมให้ กรุณาดูนาฬิกาบนเครื่อง`);
+    values.recorded_time = null;
+    missing.push('Time');
   }
 
   for (const [name, { label, min, max, integer }] of Object.entries(SCREEN_FIELDS)) {

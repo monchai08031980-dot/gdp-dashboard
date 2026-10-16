@@ -70,7 +70,8 @@ router.post(
     if (!type) return res.status(415).json({ error: 'รองรับเฉพาะภาพ JPG, PNG หรือ WEBP' });
     const { rows } = await pool.query('SELECT id FROM dialysis_sessions WHERE id = $1', [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'ไม่พบรอบการฟอก' });
-    res.json(await readMachineScreen(req.body, type));
+    // เวลาบนอุปกรณ์ที่ถ่าย ใช้แยกนาฬิกาออกจากเวลาฟอก และเลือกเช้า/บ่ายของนาฬิกาแบบ 12 ชั่วโมง
+    res.json(await readMachineScreen(req.body, type, { now: req.get('X-Local-Time') }));
   },
 );
 

@@ -123,8 +123,9 @@ export function needUser(msgId) {
 
 
 // อัปโหลดไฟล์ดิบ (jpg / pdf) ไปที่ path
-export async function apiUpload(path, file, reasonId) {
+export async function apiUpload(path, file, reasonId, extraHeaders = {}) {
   const headers = {
+    ...extraHeaders,
     'Content-Type': file.type || 'application/octet-stream',
     ...userHeaders(),
     'X-File-Name': encodeURIComponent(file.name),

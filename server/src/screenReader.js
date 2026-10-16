@@ -9,11 +9,12 @@ const nullable = (type) => ({ anyOf: [{ type }, { type: 'null' }] });
 const SCHEMA = {
   type: 'object',
   properties: {
+    time_raw: nullable('string'),
     recorded_time: nullable('string'),
     ...Object.fromEntries(Object.keys(SCREEN_FIELDS).map((k) => [k, nullable('number')])),
     notes: { type: 'string' },
   },
-  required: ['recorded_time', ...Object.keys(SCREEN_FIELDS), 'notes'],
+  required: ['time_raw', 'recorded_time', ...Object.keys(SCREEN_FIELDS), 'notes'],
   additionalProperties: false,
 };
 
@@ -58,7 +59,7 @@ export const screenReaderEnabled = () => Boolean(activeReader());
 
 // อ่านภาพเดียวกัน SCREEN_READS ครั้งแยกกัน แล้วเติมเฉพาะค่าที่ทุกครั้งตรงกัน (ดู public/screenRead.js)
 // คืน { values, missing, warnings, notes } ค่าที่ไม่แน่ใจเป็น null เสมอ
-export async function readMachineScreen(image, mediaType) {
+export async function readMachineScreen(image, mediaType, { now } = {}) {
   const read = activeReader();
   if (!read) throw httpError(501, 'ยังไม่ได้เปิดใช้การอ่านภาพหน้าจอเครื่อง (ตั้ง SCREEN_READER=claude และ ANTHROPIC_API_KEY)');
   let reads;
@@ -71,7 +72,7 @@ export async function readMachineScreen(image, mediaType) {
     if (err instanceof Anthropic.APIError) throw httpError(502, 'ระบบอ่านภาพขัดข้อง กรุณาลองใหม่หรือกรอกค่าเอง');
     throw err;
   }
-  return reconcileReads(reads);
+  return reconcileReads(reads, { now });
 }
 
 // ตรวจไฟล์จากเนื้อไฟล์จริง ไม่เชื่อ Content-Type

@@ -229,7 +229,8 @@ async function useImage(file) {
   $('cap-warn').innerHTML = '';
   $('cap-status').textContent = readerEnabled ? 'กด "อ่านค่า" เพื่อให้ระบบอ่านค่าจากภาพ' : '';
   capMsg('');
-  renderReview({ recorded_time: nowHm() });
+  // ถ้าระบบอ่านภาพเปิดอยู่ ช่อง Time รอค่าจากนาฬิกาบนเครื่อง ไม่ใส่เวลาของอุปกรณ์แทน
+  renderReview(readerEnabled ? {} : { recorded_time: nowHm() });
   if (readerEnabled) readScreen();
 }
 
@@ -239,9 +240,8 @@ async function readScreen() {
   $('cap-status').textContent = 'กำลังอ่านค่าจากภาพ (อ่านสองรอบเพื่อตรวจซ้ำ อาจใช้เวลาถึง 1 นาที)...';
   $('cap-warn').innerHTML = '';
   try {
-    const { values, warnings, notes } = await apiUpload(`/sessions/${current.id}/vitals/read-screen`, captureImage);
+    const { values, warnings, notes } = await apiUpload(`/sessions/${current.id}/vitals/read-screen`, captureImage, null, { 'X-Local-Time': nowHm() });
     const unread = CAPTURE_FIELDS.filter((f) => values[f.name] == null).map((f) => f.name);
-    if (values.recorded_time == null) values.recorded_time = nowHm();
     renderReview(values, unread);
     const unreadLabels = CAPTURE_FIELDS.filter((f) => unread.includes(f.name)).map((f) => f.label);
     $('cap-status').textContent = unread.length
