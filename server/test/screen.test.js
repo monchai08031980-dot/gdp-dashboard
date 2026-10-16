@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { pool, withAudit } from '../src/db.js';
 import { app } from '../src/app.js';
 import { setScreenReader } from '../src/screenReader.js';
-import { reconcileReads, readClock, pickSlots } from '../public/screenRead.js';
+import { reconcileReads, readClock } from '../public/screenRead.js';
 
 const server = app.listen(0);
 const base = `http://localhost:${server.address().port}/api`;
@@ -42,8 +42,7 @@ test('อ่านภาพหน้าจอเครื่อง: ตรวจ
 
     const res = await upload(path, JPEG);
     assert.equal(res.status, 200);
-    const body = await res.json();
-    const out = { ...body.rows[0], warnings: body.warnings };
+    const out = await res.json();
     assert.deepEqual(seen, { size: JPEG.length, type: 'image/jpeg' });
     assert.equal(out.values.recorded_time, '09:05');
     assert.equal(out.values.bp_sys, 138);
@@ -53,8 +52,8 @@ test('อ่านภาพหน้าจอเครื่อง: ตรวจ
     assert.equal(out.values.tmp_mmhg, null);
     assert.equal(out.values.conductivity_ms_cm, 14);
     assert.deepEqual(out.missing, ['RR', 'UFR', 'Total ml']);
-    assert.match(out.warnings[0], /^09:05 PR อ่านได้ไม่ตรงกัน \(76 \/ 78\)/);
-    assert.match(out.warnings[1], /^09:05 TMP/);
+    assert.match(out.warnings[0], /^PR อ่านได้ไม่ตรงกัน \(76 \/ 78\)/);
+    assert.match(out.warnings[1], /^TMP/);
 
     // การอ่านภาพไม่สร้างแถว ต้องกดบันทึกเองผ่าน API เดิมซึ่งมี audit log
     const detail = await (await fetch(`${base}/sessions/${session.id}`)).json();
@@ -70,8 +69,7 @@ test('อ่านภาพหน้าจอเครื่อง: ตรวจ
 
 test('รวมผลอ่าน: ค่าต้องตรงกันทุกครั้งและสมเหตุผลจึงจะเติม', () => {
   const a = { recorded_time: '10:42', bp_sys: 80, bp_dia: 120, pr: '80', rr: null, bfr_ml_min: 300, pv_mmhg: -20, tmp_mmhg: 80, conductivity_ms_cm: 14.1, ufr: 612.4, total_uf_ml: '1250', notes: 'จอสะท้อนแสง' };
-  const res = reconcileReads([a, { ...a, recorded_time: '10:43', notes: 'จอสะท้อนแสง' }]);
-  const out = { ...res.rows[0], warnings: res.warnings, notes: res.notes };
+  const out = reconcileReads([a, { ...a, recorded_time: '10:43', notes: 'จอสะท้อนแสง' }]);
   assert.equal(out.values.recorded_time, null);
   assert.equal(out.values.bp_sys, null); // sys ต่ำกว่า dia ไม่สมเหตุผล
   assert.equal(out.values.pr, 80);
@@ -92,34 +90,7 @@ test('อ่านนาฬิกาเครื่อง: AM/PM, แบบ 12 �
   const base = { bp_sys: 120, bp_dia: 70, notes: '' };
   // ภาพที่ถ่ายไว้ก่อน เวลาบนจอ 10:36 ต้องได้ 10:36 ตามจอ
   const shown = reconcileReads([{ ...base, time_raw: 'Time 10:36' }, { ...base, time_raw: '10:36' }]);
-  assert.equal(shown.rows[0].values.recorded_time, '10:36');
+  assert.equal(shown.values.recorded_time, '10:36');
   const ok = reconcileReads([{ ...base, time_raw: '4:51 PM' }, { ...base, time_raw: '16:51' }]);
-  assert.equal(ok.rows[0].values.recorded_time, '16:51');
-});
-
-test('หน้าจอหลายแถว: จับคู่แถวตามเวลา แล้วกรองเวลาเริ่มและทุก 30 นาทีจนครบ 4 ชั่วโมง', () => {
-  // ข้อมูลจำลอง: เครื่องบันทึกทุก 15 นาที ตั้งแต่ 10:00 ถึง 14:15
-  const rows = [];
-  for (let m = 0; m <= 255; m += 15) {
-    const t = `${String(10 + Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-    rows.push({ time_raw: t, bp_sys: 120 + (m % 7), bp_dia: 70, pr: 80, bfr_ml_min: 300, total_uf_ml: m * 5 });
-  }
-  const second = rows.map((r) => ({ ...r }));
-  second[2] = { ...second[2], pr: 81 }; // 10:30 PR อ่านสองรอบไม่ตรง
-  second.splice(5, 1); // 11:15 อ่านเจอรอบเดียว
-  const res = reconcileReads([{ rows, notes: '' }, { rows: second, notes: '' }]);
-  assert.equal(res.rows.length, rows.length - 1);
-  assert.ok(res.warnings.some((w) => w.startsWith('แถวเวลา 11:15')));
-  assert.ok(res.warnings.some((w) => w.startsWith('10:30 PR อ่านได้ไม่ตรงกัน')));
-
-  const slots = pickSlots(res.rows, '10:00');
-  assert.deepEqual(slots.map((r) => r.values.recorded_time), ['10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00']);
-  assert.equal(slots[0].slot, '0:00 ชม.');
-  assert.equal(slots[8].slot, '4:00 ชม.');
-  assert.equal(slots[1].values.pr, null);
-  // เวลาเริ่ม 10:05 ใช้แถวที่ใกล้ที่สุดไม่เกิน 10 นาที
-  assert.deepEqual(pickSlots(res.rows, '10:05').slice(0, 2).map((r) => r.values.recorded_time), ['10:00', '10:30']);
-  // ข้ามเที่ยงคืน
-  const night = pickSlots([{ values: { recorded_time: '23:45' } }, { values: { recorded_time: '00:15' } }], '23:45');
-  assert.deepEqual(night.map((r) => r.slot), ['0:00 ชม.', '0:30 ชม.']);
+  assert.equal(ok.values.recorded_time, '16:51');
 });

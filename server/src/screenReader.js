@@ -6,21 +6,15 @@ import Anthropic from '@anthropic-ai/sdk';
 import { SCREEN_FIELDS, SCREEN_PROMPT, SCREEN_READS, reconcileReads } from '../public/screenRead.js';
 
 const nullable = (type) => ({ anyOf: [{ type }, { type: 'null' }] });
-const ROW = {
+const SCHEMA = {
   type: 'object',
   properties: {
     time_raw: nullable('string'),
     recorded_time: nullable('string'),
     ...Object.fromEntries(Object.keys(SCREEN_FIELDS).map((k) => [k, nullable('number')])),
+    notes: { type: 'string' },
   },
-  required: ['time_raw', 'recorded_time', ...Object.keys(SCREEN_FIELDS)],
-  additionalProperties: false,
-};
-// หน้าจออาจมีค่าหลายแถวตามเวลา จึงอ่านเป็นรายการแถว
-const SCHEMA = {
-  type: 'object',
-  properties: { rows: { type: 'array', items: ROW }, notes: { type: 'string' } },
-  required: ['rows', 'notes'],
+  required: ['time_raw', 'recorded_time', ...Object.keys(SCREEN_FIELDS), 'notes'],
   additionalProperties: false,
 };
 
@@ -30,7 +24,7 @@ async function claudeReader(image, mediaType) {
   client ??= new Anthropic();
   const response = await client.beta.messages.create({
     model: 'claude-opus-5-5',
-    max_tokens: 8000,
+    max_tokens: 4000,
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
     output_config: { effort: 'high', format: { type: 'json_schema', schema: SCHEMA } },
