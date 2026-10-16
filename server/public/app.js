@@ -42,6 +42,13 @@ function renderRows(kind, fields, rows) {
   $(kind).innerHTML = `<thead>${head}</thead><tbody>${rows.map(row).join('')}${row(null)}</tbody>`;
 }
 
+// หน้าอื่นขอเปิดแบบฟอร์มการฟอก (เช่น ประวัติการฟอกในข้อมูลผู้ป่วยเก่า)
+document.addEventListener('open-session', async (e) => {
+  document.querySelector('.view-tab[data-view="sessions"]').click();
+  await openSession(e.detail);
+  $('detail').scrollIntoView({ behavior: 'smooth' });
+});
+
 async function openSession(id) {
   current = await api('/sessions/' + id);
   const patient = await api('/patients/' + current.patient_id);

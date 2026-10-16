@@ -146,7 +146,7 @@ async function act(action, done = 'บันทึกแล้ว') {
   try {
     await action();
     $('p-reason').value = '';
-    say(done);
+    if (done) say(done);
   } catch (err) {
     say('ไม่สำเร็จ: ' + err.message);
   }
@@ -180,11 +180,12 @@ $('p-delete-no').addEventListener('click', () => { $('p-delete-confirm').hidden 
 $('p-delete-yes').addEventListener('click', () => {
   if (needUser('p-msg')) return;
   act(async () => {
-    await api('/patients/' + patient.id, { method: 'DELETE' }, 'p-reason');
+    const { cancelled_bookings: n } = await api('/patients/' + patient.id, { method: 'DELETE' }, 'p-reason');
     patient = null;
     $('p-detail').hidden = true;
     await loadPatients();
-  });
+    say(`ย้ายไปข้อมูลผู้ป่วยเก่าแล้ว${n ? ` และยกเลิกนัดที่ยังไม่ถึง ${n} นัด` : ''}`);
+  }, null);
 });
 
 function checkFile(file, onlyJpeg) {

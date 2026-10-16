@@ -49,7 +49,7 @@ test('เพิ่ม แก้ไข ลบผู้ป่วย พร้อ�
   assert.equal(files.length, 2);
 
   // ลบผู้ป่วย = ซ่อนจากรายชื่อ แต่ข้อมูลยังอยู่
-  assert.equal((await fetch(`${base}/patients/${p.id}`, { method: 'DELETE', headers: headers() })).status, 204);
+  assert.equal((await fetch(`${base}/patients/${p.id}`, { method: 'DELETE', headers: headers() })).status, 200);
   const list = await (await fetch(`${base}/patients?q=${hn}`)).json();
   assert.equal(list.length, 0);
   assert.equal((await (await fetch(`${base}/patients/${p.id}`)).json()).active, false);
@@ -83,4 +83,34 @@ test('บันทึกรอบฟอกประจำของผู้ป�
   assert.equal(closed.status, 400);
   assert.match((await closed.json()).error, /ไม่ได้เปิดในการตั้งค่ารอบ/);
   assert.equal((await fetch(`${base}/patients/${p.id}`, json('PATCH', { regular_shift: 3 }))).status, 200);
+});
+
+test('ลบผู้ป่วยแล้วย้ายไปข้อมูลผู้ป่วยเก่า ยกเลิกนัดที่ยังไม่ถึง และนำกลับมาได้', async () => {
+  const hn = `TEST-ARC-${Date.now()}`;
+  const p = await (await fetch(`${base}/patients`, json('POST', { hn, first_name: 'ย้าย', last_name: `ข้อมูลเก่า${Date.now()}` }))).json();
+  const d = new Date(); d.setDate(d.getDate() + 3);
+  const future = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  assert.equal((await fetch(`${base}/schedule`, json('POST', { patient_id: p.id, shift: 1, dates: [future] }))).status, 201);
+
+  const del = await fetch(`${base}/patients/${p.id}`, { method: 'DELETE', headers: headers({ 'X-Edit-Reason': encodeURIComponent('ย้ายไปรักษาที่อื่น') }) });
+  assert.equal(del.status, 200);
+  assert.equal((await del.json()).cancelled_bookings, 1);
+  assert.equal((await (await fetch(`${base}/patients?q=${hn}`)).json()).length, 0);
+  const old = await (await fetch(`${base}/patients?archived=1&q=${hn}`)).json();
+  assert.equal(old.length, 1);
+  assert.equal(old[0].archive_reason, 'ย้ายไปรักษาที่อื่น');
+  assert.ok(old[0].archived_at);
+  assert.equal((await (await fetch(`${base}/schedule?patient_id=${p.id}`)).json()).length, 0);
+  // ข้อมูลเก่าแก้ไขไม่ได้จนกว่าจะนำกลับ
+  assert.equal((await fetch(`${base}/patients/${p.id}`, json('PATCH', { payer: 'บัตรทอง' }))).status, 409);
+
+  const back = await fetch(`${base}/patients/${p.id}/restore`, json('POST', {}));
+  assert.equal(back.status, 200);
+  const restored = await back.json();
+  assert.equal(restored.active, true);
+  assert.equal(restored.archived_at, null);
+  assert.equal((await (await fetch(`${base}/patients?archived=1&q=${hn}`)).json()).length, 0);
+  assert.equal((await fetch(`${base}/patients/${p.id}/restore`, json('POST', {}))).status, 404);
+  const log = await (await fetch(`${base}/audit?table=patients&record_id=${p.id}`)).json();
+  assert.ok(log.some((a) => a.changed_fields?.includes('archived_at') && a.reason === 'ย้ายไปรักษาที่อื่น'));
 });

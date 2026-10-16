@@ -10,10 +10,12 @@ const FILE_COLUMNS = 'id, patient_id, kind, file_name, mime_type, size_bytes, up
 
 const router = Router();
 
-// รายชื่อผู้ป่วย: ?q=(HN หรือชื่อ)&regular_shift=&limit=&offset= จำนวนทั้งหมดอยู่ใน header X-Total-Count
+// รายชื่อผู้ป่วย: ?q=(HN หรือชื่อ)&regular_shift=&archived=1&limit=&offset= จำนวนทั้งหมดอยู่ใน header X-Total-Count
+// archived=1 คือข้อมูลผู้ป่วยเก่า (ผู้ป่วยที่ลบออกจากรายชื่อแล้ว) เรียงจากที่ย้ายมาล่าสุด
 router.get('/', async (req, res) => {
   const params = [];
-  const where = ['active'];
+  const archived = req.query.archived === '1';
+  const where = [archived ? 'NOT active' : 'active'];
   if (req.query.q?.trim()) {
     const q = params.push(`%${req.query.q.trim()}%`);
     where.push(`(hn ILIKE $${q} OR first_name ILIKE $${q} OR last_name ILIKE $${q}
@@ -25,7 +27,7 @@ router.get('/', async (req, res) => {
   const { rows } = await pool.query(
     `SELECT *, count(*) OVER () AS total_count FROM patients
      WHERE ${where.join(' AND ')}
-     ORDER BY hn
+     ORDER BY ${archived ? 'archived_at DESC NULLS LAST, hn' : 'hn'}
      LIMIT $${params.push(limit)} OFFSET $${params.push(offset)}`,
     params,
   );
@@ -63,8 +65,9 @@ router.patch('/:id', async (req, res) => {
   const data = pick(req.body, COLUMNS);
   if (!Object.keys(data).length) return res.status(400).json({ error: 'ไม่มีข้อมูลที่จะแก้ไข' });
   const row = await withAudit(req.actor, req.reason, async (db) => {
-    const { rows: cur } = await db.query('SELECT regular_shift FROM patients WHERE id = $1', [req.params.id]);
+    const { rows: cur } = await db.query('SELECT regular_shift, active FROM patients WHERE id = $1', [req.params.id]);
     if (!cur[0]) return null;
+    if (!cur[0].active) throw Object.assign(new Error('ผู้ป่วยรายนี้อยู่ในข้อมูลผู้ป่วยเก่า ต้องนำกลับมาก่อนจึงจะแก้ไขได้'), { status: 409 });
     await checkRegularShift(db, data, cur[0].regular_shift);
     return (await db.query(updateSql('patients', req.params.id, data))).rows[0];
   });
@@ -72,12 +75,34 @@ router.patch('/:id', async (req, res) => {
   res.json(row);
 });
 
-// ลบผู้ป่วยออกจากรายชื่อ: ปิดสถานะไว้ ไม่ลบเวชระเบียนและประวัติการฟอก
+// ลบผู้ป่วยออกจากรายชื่อ = ย้ายไปข้อมูลผู้ป่วยเก่า ไม่ลบเวชระเบียน ประวัติการฟอก และไฟล์
+// นัดที่ยังไม่ถึง (ตั้งแต่วันนี้) ถูกยกเลิกด้วย เพื่อคืนเตียงในตารางนัด
 router.delete('/:id', async (req, res) => {
+  const result = await withAudit(req.actor, req.reason, async (db) => {
+    const { rows } = await db.query(
+      'UPDATE patients SET active = false, archived_at = now(), archive_reason = $2 WHERE id = $1 AND active RETURNING id',
+      [req.params.id, req.reason],
+    );
+    if (!rows[0]) return null;
+    const { rowCount } = await db.query(
+      "UPDATE schedule_entries SET status = 'CANCELLED' WHERE patient_id = $1 AND status = 'PLANNED' AND schedule_date >= current_date",
+      [req.params.id],
+    );
+    return { id: rows[0].id, cancelled_bookings: rowCount };
+  });
+  if (!result) return res.status(404).json({ error: 'ไม่พบผู้ป่วย' });
+  res.json(result);
+});
+
+// นำผู้ป่วยจากข้อมูลผู้ป่วยเก่ากลับมาเป็นผู้ป่วยปัจจุบัน (นัดที่ยกเลิกไปแล้วไม่กลับมา ต้องนัดใหม่)
+router.post('/:id/restore', async (req, res) => {
   const row = await withAudit(req.actor, req.reason, async (db) =>
-    (await db.query('UPDATE patients SET active = false WHERE id = $1 AND active RETURNING id', [req.params.id])).rows[0]);
-  if (!row) return res.status(404).json({ error: 'ไม่พบผู้ป่วย' });
-  res.status(204).end();
+    (await db.query(
+      'UPDATE patients SET active = true, archived_at = NULL, archive_reason = NULL WHERE id = $1 AND NOT active RETURNING *',
+      [req.params.id],
+    )).rows[0]);
+  if (!row) return res.status(404).json({ error: 'ไม่พบผู้ป่วยในข้อมูลผู้ป่วยเก่า' });
+  res.json(row);
 });
 
 // ---------------------------------------------------------------------------

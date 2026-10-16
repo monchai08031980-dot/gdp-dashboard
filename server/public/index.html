@@ -23,6 +23,7 @@
     <button type="button" class="view-tab on" data-view="sessions" aria-current="page">การฟอกเลือด</button>
     <button type="button" class="view-tab" data-view="schedule">เตรียมผู้ป่วย</button>
     <button type="button" class="view-tab" data-view="patients">ผู้ป่วยทั้งหมด</button>
+    <button type="button" class="view-tab" data-view="archive">ข้อมูลผู้ป่วยเก่า</button>
   </nav>
 
   <main id="view-sessions">
@@ -200,7 +201,7 @@
         <span id="p-msg"></span>
       </div>
       <div id="p-delete-confirm" class="confirm" hidden>
-        <span>ลบผู้ป่วยรายนี้ออกจากรายชื่อ? ประวัติการฟอกและไฟล์ยังเก็บไว้ตามเดิม</span>
+        <span>ลบผู้ป่วยรายนี้ออกจากรายชื่อ? ข้อมูลทั้งหมดจะย้ายไปอยู่ใน "ข้อมูลผู้ป่วยเก่า" และนัดที่ยังไม่ถึงจะถูกยกเลิก</span>
         <button type="button" id="p-delete-yes" class="danger-solid">ยืนยันลบ</button>
         <button type="button" id="p-delete-no" class="ghost">ยกเลิก</button>
       </div>
@@ -224,8 +225,68 @@
       </div>
     </section>
   </main>
+  <main id="view-archive" hidden>
+    <section class="panel">
+      <div class="toolbar">
+        <h2>ข้อมูลผู้ป่วยเก่า</h2>
+        <input type="search" id="a-search" placeholder="ค้นหา HN หรือชื่อผู้ป่วย" aria-label="ค้นหาผู้ป่วยเก่า">
+      </div>
+      <p class="msg">ผู้ป่วยที่ลบออกจากรายชื่อผู้ป่วยทั้งหมด ข้อมูล ประวัติการฟอก ไฟล์ และประวัติการแก้ไขยังอยู่ครบ ดูได้อย่างเดียว ถ้าจะแก้ไขให้นำกลับเป็นผู้ป่วยปัจจุบันก่อน</p>
+      <table>
+        <thead><tr><th>HN</th><th>ชื่อ-สกุล</th><th>อายุ</th><th>เพศ</th><th>รอบฟอกเดิม</th><th>วันที่ย้ายมา</th><th>เหตุผล</th></tr></thead>
+        <tbody id="a-list"></tbody>
+      </table>
+      <div class="pager">
+        <label class="per-page">แสดง
+          <select id="a-page-size"><option>10</option><option selected>25</option><option>50</option><option>100</option></select>
+          รายการ</label>
+        <span id="a-page-info"></span>
+        <span class="pager-buttons">
+          <button type="button" class="ghost" id="a-prev">ก่อนหน้า</button>
+          <button type="button" class="ghost" id="a-next">ถัดไป</button>
+        </span>
+      </div>
+    </section>
+
+    <section class="panel" id="a-detail" hidden>
+      <div class="toolbar">
+        <h2 id="a-title">ข้อมูลผู้ป่วยเก่า</h2>
+        <button type="button" class="ghost" id="a-close">ปิด</button>
+      </div>
+      <div class="archived-note" id="a-note"></div>
+      <div class="pd-head">
+        <div class="photo" id="a-photo"></div>
+        <dl class="pd-facts" id="a-facts"></dl>
+      </div>
+      <h3>ประวัติการฟอกเลือด</h3>
+      <table>
+        <thead><tr><th>วันที่</th><th>ครั้งที่</th><th>รอบ</th><th>เตียง</th><th>นน. ก่อน/หลัง</th><th>UF (ml)</th><th>สถานะ</th></tr></thead>
+        <tbody id="a-sessions"></tbody>
+      </table>
+      <h3>ไฟล์แนบ</h3>
+      <table>
+        <thead><tr><th>ชื่อไฟล์</th><th>ชนิด</th><th>ขนาด</th><th>ผู้เพิ่ม</th><th>วันที่</th></tr></thead>
+        <tbody id="a-files"></tbody>
+      </table>
+      <div class="viewer" id="a-viewer" hidden>
+        <div class="toolbar"><b id="a-viewer-name"></b><button type="button" class="ghost" id="a-viewer-close">ปิด</button></div>
+        <img id="a-viewer-img" alt="">
+      </div>
+      <h3>ประวัติการแก้ไข (Audit log)</h3>
+      <table>
+        <thead><tr><th>เวลา</th><th>การกระทำ</th><th>ส่วน</th><th>ผู้แก้ไข</th><th>ฟิลด์ที่เปลี่ยน</th><th>เหตุผล</th></tr></thead>
+        <tbody id="a-audit"></tbody>
+      </table>
+      <div class="actions">
+        <input id="a-reason" placeholder="เหตุผลที่นำกลับ (ถ้ามี)">
+        <button type="button" id="a-restore">นำกลับเป็นผู้ป่วยปัจจุบัน</button>
+        <span id="a-msg"></span>
+      </div>
+    </section>
+  </main>
   <script type="module" src="app.js"></script>
   <script type="module" src="patients.js"></script>
   <script type="module" src="schedule.js"></script>
+  <script type="module" src="archive.js"></script>
 </body>
 </html>
