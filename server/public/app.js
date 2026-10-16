@@ -170,7 +170,7 @@ function stopCamera() {
 
 async function openCamera() {
   capMsg('');
-  if (!navigator.mediaDevices?.getUserMedia) { $('cap-camera-fallback').hidden = false; $('cap-camera').click(); return; }
+  if (!navigator.mediaDevices?.getUserMedia) { $('cap-hint').textContent = 'เบราว์เซอร์นี้เปิดกล้องไม่ได้ กรุณากด "เลือกไฟล์จากเครื่อง"'; return; }
   try {
     stopCamera();
     cameraStream = await navigator.mediaDevices.getUserMedia({
@@ -182,10 +182,9 @@ async function openCamera() {
     $('cap-live').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   } catch (err) {
     stopCamera();
-    $('cap-camera-fallback').hidden = false;
     $('cap-hint').textContent = (err?.name === 'NotAllowedError'
-      ? 'ไม่ได้รับอนุญาตให้ใช้กล้องในหน้านี้ กรุณาอนุญาตกล้องในเบราว์เซอร์ หรือกด "เปิดแอปกล้องของเครื่อง"'
-      : 'เปิดกล้องในหน้านี้ไม่ได้ กรุณากด "เปิดแอปกล้องของเครื่อง" หรือ "เลือกไฟล์จากเครื่อง"');
+      ? 'ไม่ได้รับอนุญาตให้ใช้กล้องในหน้านี้ กรุณาอนุญาตกล้องในเบราว์เซอร์ หรือกด "เลือกไฟล์จากเครื่อง"'
+      : 'เปิดกล้องในหน้านี้ไม่ได้ กรุณากด "เลือกไฟล์จากเครื่อง"');
   }
 }
 
@@ -261,7 +260,6 @@ $('cap-close').addEventListener('click', closeCapture);
 $('cap-camera-btn').addEventListener('click', openCamera);
 $('cap-shot').addEventListener('click', takeShot);
 $('cap-live-cancel').addEventListener('click', stopCamera);
-$('cap-camera').addEventListener('change', (e) => pickImage(e.target));
 $('cap-file').addEventListener('change', (e) => pickImage(e.target));
 $('cap-read').addEventListener('click', readScreen);
 $('cap-save').addEventListener('click', async () => {
