@@ -199,6 +199,7 @@ input.time-24[aria-invalid="true"] { border-color: #b91c1c; }
 .cap-side { display: grid; gap: 10px; min-width: 0; }
 .cap-status { font-size: 13px; color: var(--muted); }
 #cap-review input.unread { border-color: #d97706; background: var(--warn-bg); }
+#cap-review input.carried { border-color: var(--accent); background: var(--accent-soft); }
 .cap-warn { margin: 0; padding-left: 18px; font-size: 13px; color: var(--warn-text); }
 .cap-warn:empty { display: none; }
 #cap-msg { font-size: 13px; color: var(--muted); }

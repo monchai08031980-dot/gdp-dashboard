@@ -135,6 +135,28 @@ let readerEnabled = null;
 const nowHm = () => new Date().toTimeString().slice(0, 5);
 const capMsg = (text) => { $('cap-msg').textContent = text; };
 
+// ค่าของเครื่องที่ถ้าไม่เปลี่ยนให้ใช้ค่าเดิม: แถวที่ไม่มีค่าบนจอ (ไม่ใช่อ่านไม่ตรงกัน) ใช้ค่าจากแถวก่อนหน้า
+// แถวแรกใช้ค่าจากบันทึกระหว่างฟอกแถวล่าสุดที่เวลาก่อนหน้า
+const CARRY_FIELDS = ['bfr_ml_min', 'pv_mmhg', 'tmp_mmhg', 'conductivity_ms_cm', 'ufr', 'total_uf_ml'];
+function carryForward(rows) {
+  const labels = Object.fromEntries(CAPTURE_FIELDS.map((f) => [f.name, f.label]));
+  const firstTime = rows.find((r) => r.values.recorded_time)?.values.recorded_time;
+  const earlier = (current?.vitals || [])
+    .filter((v) => firstTime && hhmm(v.recorded_time) < firstTime)
+    .sort((a, b) => String(a.recorded_time).localeCompare(String(b.recorded_time)));
+  let prev = earlier.at(-1) || {};
+  return rows.map((r) => {
+    const values = { ...r.values };
+    const carried = [];
+    for (const name of CARRY_FIELDS) {
+      const notOnScreen = !r.missing || r.missing.includes(labels[name]);
+      if (values[name] == null && notOnScreen && prev[name] != null) { values[name] = prev[name]; carried.push(name); }
+    }
+    prev = { ...prev, ...Object.fromEntries(CARRY_FIELDS.filter((n) => values[n] != null).map((n) => [n, values[n]])) };
+    return { ...r, values, carried };
+  });
+}
+
 // ตารางตรวจค่าที่อ่านได้ แถวละหนึ่งเวลา ติ๊กเลือกแถวที่จะบันทึก ช่องที่อ่านไม่ได้เป็นสีเหลือง
 // แถวที่มีเวลาเดียวกันอยู่แล้วในบันทึกระหว่างฟอกจะไม่ถูกเลือกไว้ กันบันทึกซ้ำ
 function renderReview(rows) {
@@ -147,6 +169,11 @@ function renderReview(rows) {
     }).join('')}</tbody>`;
   [...$('cap-review').tBodies[0].rows].forEach((tr, i) => {
     for (const f of CAPTURE_FIELDS) if (rows[i].values[f.name] == null) tr.querySelector(`[name="${f.name}"]`)?.classList.add('unread');
+    for (const name of rows[i].carried || []) {
+      const input = tr.querySelector(`[name="${name}"]`);
+      input?.classList.add('carried');
+      if (input) input.title = 'ใช้ค่าเดิมจากแถวก่อนหน้า';
+    }
   });
 }
 
@@ -258,6 +285,9 @@ async function readScreen() {
       $('cap-status').textContent = 'ไม่พบแถวที่อ่านได้บนหน้าจอ';
       shown = [{ values: {} }];
     }
+    shown = carryForward(shown);
+    const carried = shown.reduce((n, r) => n + (r.carried?.length || 0), 0);
+    if (carried) extra.push(`ช่องสีฟ้า ${carried} ช่อง ไม่มีค่าบนจอ ใช้ค่าเดิมจากแถวก่อนหน้า (BFR, PV, TMP, Conduct, UFR, Total ml)`);
     renderReview(shown);
     const dups = $('cap-review').querySelectorAll('[data-pick]:not(:checked)').length;
     if (dups) extra.push(`${dups} แถวมีเวลานี้อยู่แล้วในบันทึกระหว่างฟอก จึงไม่ได้ติ๊กไว้ กันบันทึกซ้ำ`);
