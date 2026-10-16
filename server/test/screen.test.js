@@ -88,10 +88,9 @@ test('อ่านนาฬิกาเครื่อง: AM/PM, แบบ 12 �
   assert.equal(readClock({ time_raw: '9:15' }), '09:15'); // ไม่มี AM/PM ถือตามที่เห็น ไม่เดาเช้า/บ่าย
   assert.equal(readClock({ time_raw: null, recorded_time: null }), null);
   const base = { bp_sys: 120, bp_dia: 70, notes: '' };
-  // ตัวเลข 03:45 (เวลาที่เหลือ) ห่างจากเวลาจริงมาก ไม่เติมให้
-  const far = reconcileReads([{ ...base, time_raw: '03:45' }, { ...base, time_raw: '03:45' }], { now: '16:52' });
-  assert.equal(far.values.recorded_time, null);
-  assert.match(far.warnings[0], /^Time อ่านได้ 03:45 ห่างจากเวลาปัจจุบัน/);
-  const ok = reconcileReads([{ ...base, time_raw: '4:51 PM' }, { ...base, time_raw: '16:51' }], { now: '16:52' });
+  // ภาพที่ถ่ายไว้ก่อน เวลาบนจอ 10:36 ต้องได้ 10:36 ตามจอ
+  const shown = reconcileReads([{ ...base, time_raw: 'Time 10:36' }, { ...base, time_raw: '10:36' }]);
+  assert.equal(shown.values.recorded_time, '10:36');
+  const ok = reconcileReads([{ ...base, time_raw: '4:51 PM' }, { ...base, time_raw: '16:51' }]);
   assert.equal(ok.values.recorded_time, '16:51');
 });

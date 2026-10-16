@@ -240,7 +240,7 @@ async function readScreen() {
   $('cap-status').textContent = 'กำลังอ่านค่าจากภาพ (อ่านสองรอบเพื่อตรวจซ้ำ อาจใช้เวลาถึง 1 นาที)...';
   $('cap-warn').innerHTML = '';
   try {
-    const { values, warnings, notes } = await apiUpload(`/sessions/${current.id}/vitals/read-screen`, captureImage, null, { 'X-Local-Time': nowHm() });
+    const { values, warnings, notes } = await apiUpload(`/sessions/${current.id}/vitals/read-screen`, captureImage);
     const unread = CAPTURE_FIELDS.filter((f) => values[f.name] == null).map((f) => f.name);
     renderReview(values, unread);
     const unreadLabels = CAPTURE_FIELDS.filter((f) => unread.includes(f.name)).map((f) => f.label);

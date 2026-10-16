@@ -59,7 +59,7 @@ export const screenReaderEnabled = () => Boolean(activeReader());
 
 // อ่านภาพเดียวกัน SCREEN_READS ครั้งแยกกัน แล้วเติมเฉพาะค่าที่ทุกครั้งตรงกัน (ดู public/screenRead.js)
 // คืน { values, missing, warnings, notes } ค่าที่ไม่แน่ใจเป็น null เสมอ
-export async function readMachineScreen(image, mediaType, { now } = {}) {
+export async function readMachineScreen(image, mediaType) {
   const read = activeReader();
   if (!read) throw httpError(501, 'ยังไม่ได้เปิดใช้การอ่านภาพหน้าจอเครื่อง (ตั้ง SCREEN_READER=claude และ ANTHROPIC_API_KEY)');
   let reads;
@@ -72,7 +72,7 @@ export async function readMachineScreen(image, mediaType, { now } = {}) {
     if (err instanceof Anthropic.APIError) throw httpError(502, 'ระบบอ่านภาพขัดข้อง กรุณาลองใหม่หรือกรอกค่าเอง');
     throw err;
   }
-  return reconcileReads(reads, { now });
+  return reconcileReads(reads);
 }
 
 // ตรวจไฟล์จากเนื้อไฟล์จริง ไม่เชื่อ Content-Type
