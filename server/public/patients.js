@@ -7,8 +7,16 @@ import {
 const SEX = { M: 'ชาย', F: 'หญิง' };
 const DAY_SHORT = { MON: 'จ.', TUE: 'อ.', WED: 'พ.', THU: 'พฤ.', FRI: 'ศ.', SAT: 'ส.', SUN: 'อา.' };
 const DAY_ORDER = CHECKLISTS.regular_days.map(([k]) => k);
+// การตั้งค่ารอบมาจากหน้าเตรียมผู้ป่วย (/api/shifts) ใช้ชุดเดียวกันทั้งระบบ
+let shiftSettings = [];
+const loadShifts = async () => { shiftSettings = await api('/shifts'); };
+const isOpen = (s) => s && s.active && s.beds > 0;
+const shiftLabel = (n) => {
+  const s = shiftSettings.find((x) => x.shift === Number(n));
+  return `รอบ ${n}${s?.start_time ? ` (${s.start_time.slice(0, 5)} น.)` : ''}${s && !isOpen(s) ? ' ปิดอยู่' : ''}`;
+};
 const regularLabel = (p) => (p.regular_shift
-  ? `รอบ ${p.regular_shift}${p.regular_days?.length ? ' · ' + DAY_ORDER.filter((d) => p.regular_days.includes(d)).map((d) => DAY_SHORT[d]).join(' ') : ''}`
+  ? `${shiftLabel(p.regular_shift)}${p.regular_days?.length ? ' · ' + DAY_ORDER.filter((d) => p.regular_days.includes(d)).map((d) => DAY_SHORT[d]).join(' ') : ''}`
   : '');
 const ACCESS_SIDE = { LT: 'Lt', RT: 'Rt' };
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -34,7 +42,7 @@ async function loadPatients() {
   const size = Number($('p-page-size').value);
   const params = new URLSearchParams({ limit: size, offset: (listState.page - 1) * size });
   if ($('p-search').value.trim()) params.set('q', $('p-search').value.trim());
-  const { rows, total } = await apiList('/patients?' + params);
+  const [{ rows, total }] = await Promise.all([apiList('/patients?' + params), loadShifts()]);
   const pages = Math.max(1, Math.ceil(total / size));
   if (listState.page > pages) { listState.page = pages; return loadPatients(); }
   const today = new Date().toISOString().slice(0, 10);
@@ -73,14 +81,8 @@ async function openPatient(id) {
   $('p-viewer').hidden = true;
   $('p-title').textContent = patient ? `${fullName(patient)} · HN ${patient.hn}` : 'เพิ่มผู้ป่วยใหม่';
   $('p-form').innerHTML = PATIENT_INFO_FIELDS.map((f) => renderField(f, patient || {})).join('');
-  // รอบฟอกประจำ: แสดงเฉพาะรอบที่เปิดอยู่ พร้อมเวลาเริ่ม (รอบเดิมของผู้ป่วยยังเลือกค้างไว้ได้)
-  const shifts = await api('/shifts');
-  const shiftField = {
-    ...PATIENT_SHIFT_FIELDS[0],
-    options: shifts.filter((x) => (x.active && x.beds > 0) || x.shift === patient?.regular_shift)
-      .map((x) => [String(x.shift), `รอบ ${x.shift}${x.start_time ? ` (${x.start_time.slice(0, 5)} น.)` : ''}${x.active ? '' : ' ปิดอยู่'}`]),
-  };
-  $('p-shift-form').innerHTML = [shiftField, PATIENT_SHIFT_FIELDS[1]].map((f) => renderField(f, patient || {})).join('');
+  await loadShifts();
+  renderShiftForm(patient || {});
   $('p-save').textContent = patient ? 'บันทึกข้อมูลผู้ป่วย' : 'เพิ่มผู้ป่วย';
   // ไฟล์ รูป และการลบ ใช้ได้หลังบันทึกผู้ป่วยแล้ว
   $('p-delete').hidden = !patient;
@@ -91,6 +93,36 @@ async function openPatient(id) {
   if (patient) await Promise.all([loadFiles(), loadAudit()]);
   $('p-detail').scrollIntoView({ behavior: 'smooth' });
 }
+
+// รอบฟอกประจำ: ตัวเลือกคือรอบที่เปิดอยู่ในการตั้งค่ารอบ พร้อมเวลาเริ่มและจำนวนเตียง
+// รอบเดิมของผู้ป่วยที่ถูกปิดภายหลังยังแสดงค้างไว้ให้เห็น จนกว่าจะเลือกรอบใหม่
+function renderShiftForm(values) {
+  const open = shiftSettings.filter((x) => isOpen(x) || x.shift === patient?.regular_shift);
+  const shiftField = {
+    ...PATIENT_SHIFT_FIELDS[0],
+    options: open.map((x) => [String(x.shift), `${shiftLabel(x.shift)}${isOpen(x) ? ` · ${x.beds} เตียง` : ''}`]),
+  };
+  const none = !shiftSettings.some(isOpen);
+  $('p-shift-form').innerHTML = [shiftField, PATIENT_SHIFT_FIELDS[1]].map((f) => renderField(f, values)).join('')
+    + `<p class="p-shift-note">${none ? 'ยังไม่มีรอบที่เปิดอยู่ ' : 'รอบที่เลือกได้มาจากการตั้งค่ารอบในหน้าเตรียมผู้ป่วย '}<button type="button" class="link" id="p-shift-settings">ตั้งค่ารอบ</button></p>`;
+}
+
+// ค่าที่กรอกค้างไว้ในฟอร์มรอบฟอก ใช้ตอนวาดฟอร์มใหม่หลังการตั้งค่ารอบเปลี่ยน
+const shiftFormValues = () => Object.fromEntries(PATIENT_SHIFT_FIELDS.map((f) => [f.name, readField($('p-shift-form'), f)]));
+
+$('p-shift-form').addEventListener('click', (e) => {
+  if (e.target.id !== 'p-shift-settings') return;
+  document.querySelector('.view-tab[data-view="schedule"]').click();
+  document.dispatchEvent(new CustomEvent('open-shift-settings'));
+});
+
+// หน้าเตรียมผู้ป่วยบันทึกการตั้งค่ารอบใหม่: อัปเดตตัวเลือกและรายชื่อทันที
+document.addEventListener('shifts-changed', async () => {
+  const values = $('p-detail').hidden ? null : shiftFormValues();
+  await loadShifts();
+  if (values) renderShiftForm(values);
+  if (!$('view-patients').hidden) loadPatients();
+});
 
 async function loadFiles() {
   const files = await api(`/patients/${patient.id}/files`);

@@ -38,15 +38,35 @@ router.get('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
+// รอบฟอกประจำต้องเป็นรอบที่เปิดอยู่ในการตั้งค่ารอบ (หน้าเตรียมผู้ป่วย)
+// ผู้ป่วยที่อยู่รอบเดิมซึ่งถูกปิดภายหลัง ยังแก้ข้อมูลอื่นได้โดยไม่ต้องย้ายรอบ
+async function checkRegularShift(db, data, current) {
+  if (data.regular_shift === undefined || data.regular_shift === null || data.regular_shift === '') return;
+  if (Number(data.regular_shift) === current) return;
+  const { rows } = await db.query('SELECT active, beds FROM shift_settings WHERE shift = $1', [data.regular_shift]);
+  if (!rows[0]?.active || !rows[0].beds) {
+    throw Object.assign(new Error(`รอบ ${data.regular_shift} ไม่ได้เปิดในการตั้งค่ารอบ เลือกรอบที่เปิดอยู่ หรือเปิดรอบนี้ที่หน้าเตรียมผู้ป่วยก่อน`), { status: 400 });
+  }
+}
+
 router.post('/', async (req, res) => {
-  const row = await withAudit(req.user, req.reason, async (db) => (await db.query(insertSql('patients', pick(req.body, COLUMNS)))).rows[0]);
+  const data = pick(req.body, COLUMNS);
+  const row = await withAudit(req.user, req.reason, async (db) => {
+    await checkRegularShift(db, data, null);
+    return (await db.query(insertSql('patients', data))).rows[0];
+  });
   res.status(201).json(row);
 });
 
 router.patch('/:id', async (req, res) => {
   const data = pick(req.body, COLUMNS);
   if (!Object.keys(data).length) return res.status(400).json({ error: 'ไม่มีข้อมูลที่จะแก้ไข' });
-  const row = await withAudit(req.user, req.reason, async (db) => (await db.query(updateSql('patients', req.params.id, data))).rows[0]);
+  const row = await withAudit(req.user, req.reason, async (db) => {
+    const { rows: cur } = await db.query('SELECT regular_shift FROM patients WHERE id = $1', [req.params.id]);
+    if (!cur[0]) return null;
+    await checkRegularShift(db, data, cur[0].regular_shift);
+    return (await db.query(updateSql('patients', req.params.id, data))).rows[0];
+  });
   if (!row) return res.status(404).json({ error: 'ไม่พบผู้ป่วย' });
   res.json(row);
 });

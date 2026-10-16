@@ -112,6 +112,13 @@ function renderSettings() {
     </div>`).join('');
 }
 
+// หน้าผู้ป่วยทั้งหมดขอเปิดการตั้งค่ารอบ
+document.addEventListener('open-shift-settings', async () => {
+  if (!state.shifts.length) state.shifts = await api('/shifts');
+  $('s-settings').hidden = false;
+  renderSettings();
+  $('s-settings').scrollIntoView({ behavior: 'smooth' });
+});
 $('s-settings-toggle').addEventListener('click', () => {
   $('s-settings').hidden = !$('s-settings').hidden;
   if (!$('s-settings').hidden) renderSettings();
@@ -126,9 +133,10 @@ $('s-settings-save').addEventListener('click', async () => {
   }));
   try {
     await api('/shifts', { method: 'PUT', body: JSON.stringify(body) }, NO_REASON);
-    $('s-settings-msg').textContent = 'บันทึกแล้ว';
+    $('s-settings-msg').textContent = 'บันทึกแล้ว รอบฟอกประจำในหน้าผู้ป่วยทั้งหมดใช้การตั้งค่านี้ด้วย';
     await load();
     renderSettings();
+    document.dispatchEvent(new CustomEvent('shifts-changed'));
   } catch (err) {
     $('s-settings-msg').textContent = 'บันทึกไม่สำเร็จ: ' + err.message;
   }

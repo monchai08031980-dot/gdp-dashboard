@@ -78,4 +78,9 @@ test('บันทึกรอบฟอกประจำของผู้ป�
   assert.equal(bad.status, 400);
   const badShift = await fetch(`${base}/patients/${p.id}`, json('PATCH', { regular_shift: 5 }));
   assert.equal(badShift.status, 400);
+  // รอบ 4 ปิดอยู่ตามค่าตั้งต้น จึงเลือกเป็นรอบประจำไม่ได้
+  const closed = await fetch(`${base}/patients/${p.id}`, json('PATCH', { regular_shift: 4 }));
+  assert.equal(closed.status, 400);
+  assert.match((await closed.json()).error, /ไม่ได้เปิดในการตั้งค่ารอบ/);
+  assert.equal((await fetch(`${base}/patients/${p.id}`, json('PATCH', { regular_shift: 3 }))).status, 200);
 });
