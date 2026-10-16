@@ -20,14 +20,16 @@ shifts.get('/', async (_req, res) => {
   res.json(rows);
 });
 
-// body: [{ shift, active, beds, start_time }]
+// body: [{ shift, active, beds, start_time }] คืนเฉพาะรอบที่เปลี่ยน
 shifts.put('/', async (req, res) => {
   if (!Array.isArray(req.body)) return res.status(400).json({ error: 'ข้อมูลไม่ถูกต้อง' });
   const rows = await withAudit(req.user, req.reason, async (db) => {
     const out = [];
     for (const s of req.body) {
       const { rows: r } = await db.query(
-        `UPDATE shift_settings SET active = $2, beds = $3, start_time = $4 WHERE shift = $1 RETURNING *`,
+        // แก้เฉพาะรอบที่ค่าเปลี่ยน เวลาบันทึกล่าสุดและ audit log จึงตรงกับรอบที่แก้จริง
+        `UPDATE shift_settings SET active = $2, beds = $3, start_time = $4
+         WHERE shift = $1 AND (active, beds, start_time) IS DISTINCT FROM ($2, $3, $4::time) RETURNING *`,
         [s.shift, Boolean(s.active), s.beds, s.start_time || null],
       );
       if (r[0]) out.push(r[0]);

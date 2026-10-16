@@ -98,6 +98,10 @@ button.link { background: none; border: none; padding: 0; color: var(--accent); 
 .sc-title input { width: auto; }
 .sc-badge { font-size: 12px; padding: 2px 10px; border-radius: 999px; }
 .sc-badge.on { background: var(--accent-soft); color: var(--accent); }
+.sc-badge.dirty { background: var(--warn-bg); color: var(--warn-text); font-weight: 600; }
+.shift-card.dirty { border-left-color: var(--warn-text); }
+.sc-saved { font-size: 13px; color: var(--muted); }
+.sc-saved b { color: var(--text); font-weight: 600; }
 .sc-badge.off { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
 .sc-inputs { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .sc-inputs label { display: flex; align-items: center; gap: 6px; color: var(--muted); }

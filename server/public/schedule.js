@@ -1,6 +1,6 @@
 // หน้าเตรียมผู้ป่วย: ตารางนัดฟอกล่วงหน้าแบบวัน สัปดาห์ เดือน และดูข้อมูลผู้ป่วย
 import { PATIENT_FIELDS, CHECKLISTS } from './form519.js';
-import { $, api, apiList, blobUrl, esc, fmtDate, age, needUser } from './common.js';
+import { $, api, apiList, blobUrl, esc, fmtDate, fmtTime, age, needUser } from './common.js';
 
 const NO_REASON = 's-no-reason'; // หน้านี้ไม่มีช่องเหตุผล
 const WEEKDAYS = ['จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.', 'อา.']; // เริ่มวันจันทร์
@@ -113,6 +113,7 @@ function renderSettings() {
         <label class="sc-title"><input type="checkbox" id="s-on-${s.shift}" ${s.active ? 'checked' : ''}> รอบ ${s.shift}</label>
         <span class="sc-badge" id="s-badge-${s.shift}"></span>
       </div>
+      <div class="sc-saved">ค่าที่บันทึกไว้: <b>${savedLabel(s)}</b>${s.updated_at ? `<span class="msg"> · บันทึกล่าสุด ${fmtTime(s.updated_at)}</span>` : ''}</div>
       <div class="sc-inputs">
         <label>เวลาเริ่ม <input id="s-time-${s.shift}" type="time" value="${(s.start_time || '').slice(0, 5)}"></label>
         <label>รับผู้ป่วย <input id="s-beds-${s.shift}" type="number" min="0" max="30" value="${s.beds}"> เตียง</label>
@@ -124,16 +125,23 @@ function renderSettings() {
   for (const s of state.shifts) renderShiftStats(s.shift);
 }
 
-// สรุปของรอบตามค่าที่กรอกอยู่ (ยังไม่บันทึกก็เห็นผลทันที)
+const savedLabel = (s) => (s.active && s.beds > 0
+  ? `เปิด · เริ่ม ${(s.start_time || '').slice(0, 5) || '-'} น. · ${s.beds} เตียง`
+  : 'ปิด');
+
+// สรุปของรอบตามค่าที่กรอกอยู่ ถ้าแก้แล้วยังไม่บันทึก จะขึ้นป้าย "ยังไม่บันทึก"
 function renderShiftStats(shift) {
   const s = state.shifts.find((x) => x.shift === shift);
   const on = $(`s-on-${shift}`).checked;
   const beds = Math.max(0, Math.min(30, Number($(`s-beds-${shift}`).value) || 0));
   const open = on && beds > 0;
+  const dirty = on !== s.active || beds !== s.beds || $(`s-time-${shift}`).value !== (s.start_time || '').slice(0, 5);
   const badge = $(`s-badge-${shift}`);
-  badge.textContent = open ? 'เปิด' : 'ปิด';
-  badge.className = 'sc-badge ' + (open ? 'on' : 'off');
-  $(`s-on-${shift}`).closest('.shift-card').classList.toggle('closed', !open);
+  badge.textContent = dirty ? 'ยังไม่บันทึก' : open ? 'เปิด' : 'ปิด';
+  badge.className = 'sc-badge ' + (dirty ? 'dirty' : open ? 'on' : 'off');
+  const card = $(`s-on-${shift}`).closest('.shift-card');
+  card.classList.toggle('closed', !open);
+  card.classList.toggle('dirty', dirty);
   const byDay = s.regular_by_day || {};
   const over = DAY_KEYS.filter((d) => (byDay[d] || 0) > beds);
   const booked = s.booked_today ?? 0;
@@ -191,9 +199,9 @@ $('s-settings-save').addEventListener('click', async () => {
   }));
   try {
     await api('/shifts', { method: 'PUT', body: JSON.stringify(body) }, NO_REASON);
-    $('s-settings-msg').textContent = 'บันทึกแล้ว รอบฟอกประจำในหน้าผู้ป่วยทั้งหมดใช้การตั้งค่านี้ด้วย';
-    await load();
+      await load();
     renderSettings();
+    $('s-settings-msg').textContent = 'บันทึกแล้ว ค่าที่แสดงคือค่าที่บันทึกไว้ หน้าผู้ป่วยทั้งหมดและผังเตียงใช้ค่านี้ด้วย';
     document.dispatchEvent(new CustomEvent('shifts-changed'));
   } catch (err) {
     $('s-settings-msg').textContent = 'บันทึกไม่สำเร็จ: ' + err.message;

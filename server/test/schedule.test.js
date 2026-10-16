@@ -94,3 +94,19 @@ test('การตั้งค่ารอบแสดงจำนวนผู�
   assert.deepEqual(list.map((p) => p.hn), [hn]);
   assert.equal((await (await fetch(`${base}/patients?regular_shift=2&q=${hn}`)).json()).length, 0);
 });
+
+test('บันทึกการตั้งค่ารอบ แก้และลง audit log เฉพาะรอบที่ค่าเปลี่ยน', async () => {
+  const original = (await call('/shifts')).body;
+  try {
+    const body = original.map(({ shift, active, beds, start_time }) => ({ shift, active, beds, start_time }));
+    const two = body.find((s) => s.shift === 2);
+    const changed = await call('/shifts', 'PUT', body.map((s) => (s.shift === 2 ? { ...s, beds: two.beds === 30 ? 29 : 30 } : s)));
+    assert.deepEqual(changed.body.map((s) => s.shift), [2]);
+    const after = (await call('/shifts')).body;
+    assert.equal(after.find((s) => s.shift === 2).beds, two.beds === 30 ? 29 : 30);
+    assert.equal(after.find((s) => s.shift === 1).updated_at, original.find((s) => s.shift === 1).updated_at);
+    assert.equal((await call('/shifts', 'PUT', body.filter((s) => s.shift !== 2))).body.length, 0);
+  } finally {
+    await call('/shifts', 'PUT', original);
+  }
+});
