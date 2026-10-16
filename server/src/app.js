@@ -14,10 +14,10 @@ app.use(express.static(fileURLToPath(new URL('../public/', import.meta.url))));
 app.use('/api', (req, res, next) => {
   const encoded = req.get('X-User-Name');
   req.user = encoded ? decodeURIComponent(encoded) : null;
-  // ตำแหน่งผู้บันทึกจากหน้าจอ: พยาบาล หรือ ผู้ช่วยพยาบาล (บังคับเลือกก่อนแก้ข้อมูล)
+  // ตำแหน่งผู้บันทึกจากหน้าจอ (ROLES ใน db.js) บังคับเลือกก่อนแก้ข้อมูล
   const role = req.get('X-User-Role');
   if (req.method !== 'GET' && req.user && !Object.hasOwn(ROLES, role || '')) {
-    return res.status(400).json({ error: 'กรุณาเลือกตำแหน่งผู้บันทึก (พยาบาล หรือ ผู้ช่วยพยาบาล)' });
+    return res.status(400).json({ error: 'กรุณาเลือกตำแหน่งผู้บันทึก' });
   }
   req.actor = req.user ? { name: req.user, role } : null;
   const reason = req.get('X-Edit-Reason');

@@ -9,7 +9,7 @@ export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL || 'postgres://hemo:hemo@localhost:5432/hemo_sync',
 });
 
-export const ROLES = { NURSE: 'พยาบาล', NURSE_AIDE: 'ผู้ช่วยพยาบาล' };
+export const ROLES = { NURSE: 'พยาบาล', NURSE_AIDE: 'ผู้ช่วยพยาบาล', DOCTOR: 'แพทย์', CLERK: 'เสมียน', OTHER: 'อื่นๆ' };
 
 // ทุกการเขียนข้อมูลต้องผ่านฟังก์ชันนี้ เพื่อให้ trigger รู้ว่าใครแก้ (audit log)
 // actor คือ { name, role } จากหน้าจอ หรือชื่อเปล่า ๆ สำหรับสคริปต์ระบบ เช่น seed

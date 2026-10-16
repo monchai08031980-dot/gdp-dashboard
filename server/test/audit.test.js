@@ -100,11 +100,16 @@ test('ต้องเลือกตำแหน่งผู้บันทึ�
   const hn = `TEST-ROLE-${Date.now()}`;
   const noRole = await call('/patients', 'POST', { hn, first_name: 'ตำแหน่ง', last_name: 'ผู้บันทึก' }, 'test-aide', null, null);
   assert.equal(noRole.status, 400);
-  assert.equal((await call('/patients', 'POST', { hn, first_name: 'ตำแหน่ง', last_name: 'ผู้บันทึก' }, 'test-aide', null, 'DOCTOR')).status, 400);
+  assert.equal((await call('/patients', 'POST', { hn, first_name: 'ตำแหน่ง', last_name: 'ผู้บันทึก' }, 'test-aide', null, 'JANITOR')).status, 400);
   const ok = await call('/patients', 'POST', { hn, first_name: 'ตำแหน่ง', last_name: 'ผู้บันทึก' }, 'test-aide', null, 'NURSE_AIDE');
   assert.equal(ok.status, 201);
   const p = await ok.json();
   const log = await (await call(`/audit?table=patients&record_id=${p.id}`)).json();
   assert.equal(log[0].changed_by, 'test-aide');
   assert.equal(log[0].changed_by_role, 'NURSE_AIDE');
+  for (const role of ['DOCTOR', 'CLERK', 'OTHER']) {
+    assert.equal((await call(`/patients/${p.id}`, 'PATCH', { payer: `ทดสอบ ${role}` }, 'test-staff', null, role)).status, 200);
+  }
+  const roles = (await (await call(`/audit?table=patients&record_id=${p.id}`)).json()).map((a) => a.changed_by_role);
+  assert.deepEqual([...roles].sort(), ['CLERK', 'DOCTOR', 'NURSE_AIDE', 'OTHER']);
 });

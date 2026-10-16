@@ -8,7 +8,7 @@ export const TABLE = {
   patients: 'ข้อมูลผู้ป่วย', patient_files: 'ไฟล์',
 };
 
-export const ROLE = { NURSE: 'พยาบาล', NURSE_AIDE: 'ผู้ช่วยพยาบาล' };
+export const ROLE = { NURSE: 'พยาบาล', NURSE_AIDE: 'ผู้ช่วยพยาบาล', DOCTOR: 'แพทย์', CLERK: 'เสมียน', OTHER: 'อื่นๆ' };
 // ผู้บันทึกบนเครื่องนี้ (ชื่อ + ตำแหน่ง) จำไว้ให้ครั้งถัดไป
 try {
   $('user').value = localStorage.getItem('hemo.user') || $('user').value;
@@ -93,7 +93,7 @@ export function needUser(msgId) {
   const name = $('user').value.trim();
   const role = $('user-role').value;
   if (name && role) return false;
-  $(msgId).textContent = !role && !name ? 'กรุณาเลือกตำแหน่งและใส่ชื่อผู้บันทึกก่อน' : !role ? 'กรุณาเลือกตำแหน่งผู้บันทึก (พยาบาล หรือ ผู้ช่วยพยาบาล) ก่อน' : 'กรุณาระบุชื่อผู้บันทึกก่อน';
+  $(msgId).textContent = !role && !name ? 'กรุณาเลือกตำแหน่งและใส่ชื่อผู้บันทึกก่อน' : !role ? 'กรุณาเลือกตำแหน่งผู้บันทึกก่อน' : 'กรุณาระบุชื่อผู้บันทึกก่อน';
   (role ? $('user') : $('user-role')).focus();
   return true;
 }
