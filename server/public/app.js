@@ -137,7 +137,7 @@ const capMsg = (text) => { $('cap-msg').textContent = text; };
 
 // ค่าของเครื่องที่ถ้าไม่เปลี่ยนให้ใช้ค่าเดิม กรอกให้ครบทุกช่องทุกแถว (ช่องสีฟ้า ให้พยาบาลตรวจ)
 // ช่องว่างใช้ค่าจากแถวก่อนหน้า แถวแรกใช้บันทึกระหว่างฟอกแถวล่าสุดที่เวลาก่อนหน้า
-// ถ้ายังไม่มีค่าก่อนหน้าเลย ใช้ค่าแรกที่อ่านได้ในแถวถัดไป (ยกเว้น Total ml)
+// ถ้ายังไม่มีค่าก่อนหน้าเลย ใช้ค่าแรกที่อ่านได้ในแถวถัดไป
 const CARRY_FIELDS = ['bfr_ml_min', 'pv_mmhg', 'tmp_mmhg', 'conductivity_ms_cm', 'ufr', 'total_uf_ml'];
 function carryForward(rows) {
   const firstTime = rows.find((r) => r.values.recorded_time)?.values.recorded_time;
@@ -146,9 +146,7 @@ function carryForward(rows) {
     .sort((a, b) => String(a.recorded_time).localeCompare(String(b.recorded_time)));
   const out = rows.map((r) => ({ ...r, values: { ...r.values }, carried: [] }));
   for (const name of CARRY_FIELDS) {
-    // Total ml เป็นยอดสะสม ใช้ค่าของแถวถัดไปย้อนขึ้นไม่ได้ (จะได้ค่ามากเกินจริง)
-    const later = name === 'total_uf_ml' ? null : out.find((r) => r.values[name] != null)?.values[name];
-    let prev = earlier.at(-1)?.[name] ?? later ?? null;
+    let prev = earlier.at(-1)?.[name] ?? out.find((r) => r.values[name] != null)?.values[name] ?? null;
     for (const r of out) {
       if (r.values[name] == null && prev != null) { r.values[name] = prev; r.carried.push(name); }
       prev = r.values[name] ?? prev;
