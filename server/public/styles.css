@@ -50,3 +50,10 @@ table.rows td:last-child input { min-width: 140px; }
 .row-actions { display: flex; gap: 4px; }
 .row-actions button { padding: 4px 10px; }
 button.danger { color: #b91c1c; border-color: #b91c1c; }
+#search { width: 240px; max-width: 100%; }
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 12px; font-size: 14px; color: var(--muted); }
+.per-page { display: flex; align-items: center; gap: 6px; }
+.per-page select { width: auto; }
+#page-info { font-variant-numeric: tabular-nums; }
+.pager-buttons { display: flex; gap: 6px; margin-left: auto; }
+.pager button:disabled { opacity: 0.4; cursor: default; }

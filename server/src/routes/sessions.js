@@ -8,20 +8,30 @@ const MEDICATION_COLUMNS = MEDICATION_FIELDS.map((f) => f.name);
 
 const router = Router();
 
+// รายการรอบฟอก: ?date=&patient_id=&q=(HN หรือชื่อ)&limit=&offset=
+// จำนวนทั้งหมดที่ตรงเงื่อนไขส่งกลับใน header X-Total-Count
 router.get('/', async (req, res) => {
   const params = [];
   const where = [];
   if (req.query.date) where.push(`s.session_date = $${params.push(req.query.date)}`);
   if (req.query.patient_id) where.push(`s.patient_id = $${params.push(req.query.patient_id)}`);
+  if (req.query.q?.trim()) {
+    const q = params.push(`%${req.query.q.trim()}%`);
+    where.push(`(p.hn ILIKE $${q} OR p.first_name ILIKE $${q} OR p.last_name ILIKE $${q}
+      OR concat_ws(' ', p.first_name, p.last_name) ILIKE $${q} OR concat(p.prefix, p.first_name, ' ', p.last_name) ILIKE $${q})`);
+  }
+  const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 500);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
   const { rows } = await pool.query(
-    `SELECT s.*, p.hn, p.prefix, p.first_name, p.last_name
+    `SELECT s.*, p.hn, p.prefix, p.first_name, p.last_name, count(*) OVER () AS total_count
      FROM dialysis_sessions s JOIN patients p ON p.id = s.patient_id
      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
      ORDER BY s.session_date DESC, s.shift, s.bed_no
-     LIMIT 200`,
+     LIMIT $${params.push(limit)} OFFSET $${params.push(offset)}`,
     params,
   );
-  res.json(rows);
+  res.set('X-Total-Count', String(rows[0]?.total_count ?? 0));
+  res.json(rows.map(({ total_count, ...row }) => row));
 });
 
 router.get('/:id', async (req, res) => {

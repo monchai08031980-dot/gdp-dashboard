@@ -21,14 +21,25 @@
   <main>
     <section class="panel">
       <div class="toolbar">
-        <h2>รอบการฟอกเลือด</h2>
-        <input type="date" id="date">
-        <button id="all" class="ghost">ทั้งหมด</button>
+        <h2>รายการฟอกเลือด</h2>
+        <input type="search" id="search" placeholder="ค้นหา HN หรือชื่อผู้ป่วย" aria-label="ค้นหา HN หรือชื่อผู้ป่วย">
+        <input type="date" id="date" aria-label="วันที่">
+        <button id="all" class="ghost">ทุกวัน</button>
       </div>
       <table>
         <thead><tr><th>วันที่</th><th>No.</th><th>รอบ</th><th>เตียง</th><th>HN</th><th>ชื่อ-สกุล</th><th>Pre / Post BW</th><th>Total UF</th><th>สถานะ</th></tr></thead>
         <tbody id="sessions"></tbody>
       </table>
+      <div class="pager">
+        <label class="per-page">แสดง
+          <select id="page-size"><option>10</option><option selected>25</option><option>50</option><option>100</option></select>
+          รายการ</label>
+        <span id="page-info"></span>
+        <span class="pager-buttons">
+          <button type="button" class="ghost" id="prev">ก่อนหน้า</button>
+          <button type="button" class="ghost" id="next">ถัดไป</button>
+        </span>
+      </div>
     </section>
 
     <section class="panel" id="detail" hidden>

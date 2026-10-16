@@ -73,3 +73,24 @@ test('ฐานข้อมูลปฏิเสธการเขียนท�
     /app.user_name must be set/,
   );
 });
+
+test('รายการรอบฟอกค้นหาด้วย HN หรือชื่อ และแบ่งหน้าได้', async () => {
+  const hn = `TEST-Q-${Date.now()}`;
+  const patient = await (await call('/patients', 'POST', { hn, first_name: 'ค้นหา', last_name: 'ทดลองแบ่งหน้า' })).json();
+  const ids = [];
+  for (const d of ['2026-10-01', '2026-10-02', '2026-10-03']) {
+    ids.push((await (await call('/sessions', 'POST', { patient_id: patient.id, session_date: d })).json()).id);
+  }
+  const page = await call(`/sessions?q=${encodeURIComponent('ค้นหา ทดลอง')}&limit=2&offset=0`);
+  assert.equal(page.headers.get('X-Total-Count'), '3');
+  const rows = await page.json();
+  assert.deepEqual(rows.map((r) => r.session_date), ['2026-10-03', '2026-10-02']);
+  assert.equal(rows[0].total_count, undefined);
+  const byHn = await (await call(`/sessions?q=${hn}&limit=2&offset=2`)).json();
+  assert.deepEqual(byHn.map((r) => r.session_date), ['2026-10-01']);
+
+  await withAudit('test-cleanup', 'ลบข้อมูลทดสอบ', async (db) => {
+    await db.query('DELETE FROM dialysis_sessions WHERE id = ANY($1)', [ids]);
+    await db.query('DELETE FROM patients WHERE id = $1', [patient.id]);
+  });
+});

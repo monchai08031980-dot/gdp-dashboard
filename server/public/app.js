@@ -8,9 +8,18 @@ const TABLE = { dialysis_sessions: 'แบบฟอร์ม', intradialytic_vit
 const ACCESS_SIDE = { LT: 'Lt', RT: 'Rt' };
 
 let current = null;
+const listState = { page: 1 };
 
 try { $('user').value = localStorage.getItem('hemo.user') || ''; } catch {}
 $('user').addEventListener('change', () => { try { localStorage.setItem('hemo.user', $('user').value); } catch {} });
+
+// รายการแบบแบ่งหน้า: คืนแถวพร้อมจำนวนทั้งหมดจาก header X-Total-Count
+async function apiList(path) {
+  const res = await fetch('/api' + path);
+  const rows = await res.json();
+  if (!res.ok) throw new Error(rows.error || res.statusText);
+  return { rows, total: Number(res.headers.get('X-Total-Count')) || 0 };
+}
 
 async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', 'X-User-Name': encodeURIComponent($('user').value.trim()) };
@@ -73,15 +82,24 @@ function renderField(field, record) {
 }
 
 async function loadSessions() {
-  const date = $('date').value;
-  const rows = await api('/sessions' + (date ? `?date=${date}` : ''));
+  const size = Number($('page-size').value);
+  const params = new URLSearchParams({ limit: size, offset: (listState.page - 1) * size });
+  if ($('date').value) params.set('date', $('date').value);
+  if ($('search').value.trim()) params.set('q', $('search').value.trim());
+  const { rows, total } = await apiList('/sessions?' + params);
+  const pages = Math.max(1, Math.ceil(total / size));
+  if (listState.page > pages) { listState.page = pages; return loadSessions(); }
   $('sessions').innerHTML = rows.map((s) => `
     <tr class="clickable" data-id="${s.id}">
       <td>${fmtDate(s.session_date)}</td><td>${esc(s.session_no)}</td><td>${esc(s.shift)}</td><td>${esc(s.bed_no)}</td>
       <td>${esc(s.hn)}</td><td>${esc(`${s.prefix || ''}${s.first_name} ${s.last_name}`)}</td>
       <td>${esc(s.pre_weight_kg)} / ${esc(s.post_bw_kg)}</td><td>${esc(s.total_uf_ml)}</td>
       <td><span class="badge">${STATUS[s.status] || s.status}</span></td>
-    </tr>`).join('') || '<tr><td colspan="9">ไม่มีรายการ</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="9">ไม่พบรายการ</td></tr>';
+  const from = total ? (listState.page - 1) * size + 1 : 0;
+  $('page-info').textContent = `${from}–${from + rows.length - (total ? 1 : 0)} จาก ${total} รายการ · หน้า ${listState.page}/${pages}`;
+  $('prev').disabled = listState.page <= 1;
+  $('next').disabled = listState.page >= pages;
 }
 
 // ตารางแถวย่อย (บันทึกระหว่างฟอก / ยา) แก้ในแถวได้ และมีแถวว่างไว้เพิ่มรายการใหม่
@@ -176,8 +194,14 @@ $('sessions').addEventListener('click', (e) => {
   const row = e.target.closest('tr[data-id]');
   if (row) openSession(row.dataset.id).then(() => $('detail').scrollIntoView({ behavior: 'smooth' }));
 });
-$('date').addEventListener('change', loadSessions);
-$('all').addEventListener('click', () => { $('date').value = ''; loadSessions(); });
+const reloadFromFirstPage = () => { listState.page = 1; loadSessions(); };
+let searchTimer;
+$('search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(reloadFromFirstPage, 250); });
+$('date').addEventListener('change', reloadFromFirstPage);
+$('page-size').addEventListener('change', reloadFromFirstPage);
+$('all').addEventListener('click', () => { $('date').value = ''; reloadFromFirstPage(); });
+$('prev').addEventListener('click', () => { listState.page--; loadSessions(); });
+$('next').addEventListener('click', () => { listState.page++; loadSessions(); });
 $('close').addEventListener('click', () => { $('detail').hidden = true; current = null; });
 
 loadSessions();
