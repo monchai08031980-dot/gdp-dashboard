@@ -141,3 +141,7 @@ button.link { background: none; border: none; padding: 0; color: var(--accent); 
 .pd-list li span:last-child { color: var(--muted); }
 @media (max-width: 560px) { .pd-head { grid-template-columns: 1fr; } }
 .month .bar.zero { opacity: 0.45; }
+.p-shift { display: block; }
+.p-shift-form { display: grid; grid-template-columns: minmax(170px, 240px) minmax(0, 1fr); gap: 10px 16px; align-items: start; }
+.p-shift-form .field.wide { grid-column: auto; }
+@media (max-width: 560px) { .p-shift-form { grid-template-columns: 1fr; } }

@@ -158,7 +158,7 @@
         <button type="button" id="p-new">เพิ่มผู้ป่วย</button>
       </div>
       <table>
-        <thead><tr><th></th><th>HN</th><th>ชื่อ-สกุล</th><th>อายุ</th><th>เพศ</th><th>Access</th><th>สิทธิ</th></tr></thead>
+        <thead><tr><th></th><th>HN</th><th>ชื่อ-สกุล</th><th>อายุ</th><th>เพศ</th><th>รอบฟอก</th><th>Access</th><th>สิทธิ</th></tr></thead>
         <tbody id="p-list"></tbody>
       </table>
       <div class="pager">
@@ -186,6 +186,10 @@
         </div>
         <form id="p-form" class="p-form"></form>
       </div>
+      <fieldset class="p-shift">
+        <legend>รอบฟอกประจำ (ต้องเลือกก่อนบันทึก)</legend>
+        <form id="p-shift-form" class="p-shift-form"></form>
+      </fieldset>
       <div class="actions">
         <input id="p-reason" placeholder="เหตุผลที่แก้ไข (ถ้ามี)">
         <button type="button" id="p-save">บันทึกข้อมูลผู้ป่วย</button>

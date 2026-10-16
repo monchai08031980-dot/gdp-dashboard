@@ -1,5 +1,5 @@
 // หน้าเตรียมผู้ป่วย: ตารางนัดฟอกล่วงหน้าแบบวัน สัปดาห์ เดือน และดูข้อมูลผู้ป่วย
-import { PATIENT_FIELDS } from './form519.js';
+import { PATIENT_FIELDS, CHECKLISTS } from './form519.js';
 import { $, api, apiList, blobUrl, esc, fmtDate, age, needUser } from './common.js';
 
 const NO_REASON = 's-no-reason'; // หน้านี้ไม่มีช่องเหตุผล
@@ -137,16 +137,27 @@ $('s-settings-save').addEventListener('click', async () => {
 // ---------------------------------------------------------------------------
 // ฟอร์มนัดผู้ป่วย
 // ---------------------------------------------------------------------------
+const DAY_INDEX = { MON: 0, TUE: 1, WED: 2, THU: 3, FRI: 4, SAT: 5, SUN: 6 };
+
 function choose(p) {
   state.chosen = p;
+  // ใช้รอบฟอกประจำของผู้ป่วยเป็นค่าตั้งต้น
+  if (p?.regular_shift && [...$('s-shift').options].some((o) => o.value === String(p.regular_shift))) $('s-shift').value = String(p.regular_shift);
+  if (p?.regular_days?.length && $('s-repeat').value === 'none' && !state.slotPicked) {
+    $('s-repeat').value = 'weekly';
+    $('s-repeat-box').hidden = false;
+    for (const box of $('s-weekdays').querySelectorAll('input')) box.checked = p.regular_days.some((d) => DAY_INDEX[d] === Number(box.value));
+    if (!$('s-until').value) $('s-until').value = addDays($('s-date').value, 27);
+  }
   $('s-patient-results').innerHTML = '';
   $('s-patient-q').value = '';
   $('s-patient-chosen').innerHTML = p
-    ? `<div class="chosen"><b>${esc(`${p.prefix || ''}${p.first_name} ${p.last_name}`)}</b><span>HN ${esc(p.hn)}</span>
+    ? `<div class="chosen"><b>${esc(`${p.prefix || ''}${p.first_name} ${p.last_name}`)}</b><span>HN ${esc(p.hn)}</span>${p.regular_shift ? `<span>รอบประจำ ${p.regular_shift}</span>` : ''}
         <button type="button" class="ghost add-mini" id="s-unchoose">เปลี่ยน</button></div>` : '';
 }
 
 function openForm(date, shift, bed) {
+  state.slotPicked = Boolean(shift); // กดจากช่องในตาราง: ใช้วันและรอบนั้น ไม่ตั้งนัดซ้ำให้อัตโนมัติ
   $('s-form').hidden = false;
   $('s-conflicts').innerHTML = '';
   $('s-msg').textContent = '';
@@ -233,7 +244,9 @@ $('s-form').addEventListener('submit', async (e) => {
 // ดูข้อมูลผู้ป่วย
 // ---------------------------------------------------------------------------
 function optionLabel(field, value) {
-  if (value === null || value === undefined || value === '') return '-';
+  if (value === null || value === undefined || value === '' || (Array.isArray(value) && !value.length)) return '-';
+  if (field.type === 'checklist') return CHECKLISTS[field.name].filter(([k]) => value.includes(k)).map(([, l]) => l).join(' ');
+  if (field.type === 'select' && typeof value === 'number') value = String(value);
   if (field.type === 'select') return (field.options.find(([k]) => k === value) || [value, value])[1];
   if (field.type === 'date') return fmtDate(value);
   return value;

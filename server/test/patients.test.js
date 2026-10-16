@@ -66,3 +66,16 @@ test('เพิ่ม แก้ไข ลบผู้ป่วย พร้อ�
 test('เนื้อไฟล์แก้ไขหรือลบไม่ได้', async () => {
   await assert.rejects(pool.query("UPDATE file_contents SET content = '\\x00'"), /write-once/);
 });
+
+test('บันทึกรอบฟอกประจำของผู้ป่วย และรับเฉพาะวันที่ถูกต้อง', async () => {
+  const hn = `TEST-R-${Date.now()}`;
+  const ok = await fetch(`${base}/patients`, json('POST', { hn, first_name: 'รอบ', last_name: 'ประจำ', regular_shift: '2', regular_days: ['TUE', 'THU', 'SAT'] }));
+  assert.equal(ok.status, 201);
+  const p = await ok.json();
+  assert.equal(p.regular_shift, 2);
+  assert.deepEqual(p.regular_days, ['TUE', 'THU', 'SAT']);
+  const bad = await fetch(`${base}/patients/${p.id}`, json('PATCH', { regular_days: ['XYZ'] }));
+  assert.equal(bad.status, 400);
+  const badShift = await fetch(`${base}/patients/${p.id}`, json('PATCH', { regular_shift: 5 }));
+  assert.equal(badShift.status, 400);
+});

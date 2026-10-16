@@ -34,6 +34,9 @@ export const CHECKLISTS = {
     ['change_blood_line', 'Change blood line'], ['post_hd_nursing', 'Post HD nursing'],
     ['notified_doctor', 'Notified Doctor'],
   ],
+  regular_days: [
+    ['MON', 'จันทร์'], ['TUE', 'อังคาร'], ['WED', 'พุธ'], ['THU', 'พฤหัสบดี'], ['FRI', 'ศุกร์'], ['SAT', 'เสาร์'], ['SUN', 'อาทิตย์'],
+  ],
   health_education: [
     ['nutrition', 'Nutrition'], ['vascular_access', 'Vascular access'], ['exercise', 'Exercise'],
     ['personal_hygiene', 'Personal hygiene'], ['medication', 'Medication'], ['fluid_control', 'Fluid control'],
@@ -196,7 +199,7 @@ export const MEDICATION_FIELDS = [
 
 // ข้อมูลผู้ป่วย (หน้าผู้ป่วยทั้งหมด)
 const POS_NEG = [['NEG', 'Negative'], ['POS', 'Positive'], ['UNKNOWN', 'ไม่ทราบ']];
-export const PATIENT_FIELDS = [
+export const PATIENT_INFO_FIELDS = [
   { name: 'hn', label: 'HN', type: 'text', required: true },
   { name: 'prefix', label: 'คำนำหน้า', type: 'text' },
   { name: 'first_name', label: 'ชื่อ', type: 'text', required: true },
@@ -213,5 +216,13 @@ export const PATIENT_FIELDS = [
   { name: 'anti_hcv', label: 'Anti-HCV', type: 'select', options: POS_NEG },
   { name: 'anti_hiv', label: 'Anti-HIV', type: 'select', options: POS_NEG },
 ];
+
+// รอบฟอกประจำ: เลือกก่อนบันทึกข้อมูลผู้ป่วย ใช้เป็นค่าตั้งต้นตอนนัดฟอก
+export const PATIENT_SHIFT_FIELDS = [
+  { name: 'regular_shift', label: 'รอบฟอก', type: 'select', options: [['1', 'รอบ 1'], ['2', 'รอบ 2'], ['3', 'รอบ 3'], ['4', 'รอบ 4']], required: true },
+  { name: 'regular_days', label: 'วันที่มาฟอก', type: 'checklist', required: true },
+];
+
+export const PATIENT_FIELDS = [...PATIENT_INFO_FIELDS, ...PATIENT_SHIFT_FIELDS];
 
 export const SESSION_COLUMNS = ['patient_id', ...SECTIONS.flatMap((s) => s.fields.map((f) => f.name))];

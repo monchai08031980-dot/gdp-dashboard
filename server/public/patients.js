@@ -1,10 +1,15 @@
 // หน้าผู้ป่วยทั้งหมด: รายชื่อ, เพิ่ม ลบ แก้ไขผู้ป่วย, รูปผู้ป่วย และไฟล์แนบ (.jpg, .pdf)
-import { PATIENT_FIELDS } from './form519.js';
+import { PATIENT_FIELDS, PATIENT_INFO_FIELDS, PATIENT_SHIFT_FIELDS, CHECKLISTS } from './form519.js';
 import {
   $, api, apiList, apiUpload, blobUrl, esc, fmtTime, age, readField, fieldValue, renderField, needUser, ACTION, TABLE,
 } from './common.js';
 
 const SEX = { M: 'ชาย', F: 'หญิง' };
+const DAY_SHORT = { MON: 'จ.', TUE: 'อ.', WED: 'พ.', THU: 'พฤ.', FRI: 'ศ.', SAT: 'ส.', SUN: 'อา.' };
+const DAY_ORDER = CHECKLISTS.regular_days.map(([k]) => k);
+const regularLabel = (p) => (p.regular_shift
+  ? `รอบ ${p.regular_shift}${p.regular_days?.length ? ' · ' + DAY_ORDER.filter((d) => p.regular_days.includes(d)).map((d) => DAY_SHORT[d]).join(' ') : ''}`
+  : '');
 const ACCESS_SIDE = { LT: 'Lt', RT: 'Rt' };
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const listState = { page: 1 };
@@ -37,8 +42,9 @@ async function loadPatients() {
     <tr class="clickable" data-id="${p.id}">
       <td><span class="avatar" data-photo="${p.photo_file_id || ''}" data-patient="${p.id}">${esc(initials(p))}</span></td>
       <td>${esc(p.hn)}</td><td>${esc(fullName(p))}</td><td>${age(p.birth_date, today)}</td><td>${SEX[p.sex] || ''}</td>
+      <td>${esc(regularLabel(p))}</td>
       <td>${esc(p.vascular_access)} ${esc(ACCESS_SIDE[p.access_side] || '')}</td><td>${esc(p.payer)}</td>
-    </tr>`).join('') || '<tr><td colspan="7">ไม่พบผู้ป่วย</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="8">ไม่พบผู้ป่วย</td></tr>';
   const from = total ? (listState.page - 1) * size + 1 : 0;
   $('p-page-info').textContent = `${from}–${from + rows.length - (total ? 1 : 0)} จาก ${total} ราย · หน้า ${listState.page}/${pages}`;
   $('p-prev').disabled = listState.page <= 1;
@@ -66,7 +72,15 @@ async function openPatient(id) {
   $('p-delete-confirm').hidden = true;
   $('p-viewer').hidden = true;
   $('p-title').textContent = patient ? `${fullName(patient)} · HN ${patient.hn}` : 'เพิ่มผู้ป่วยใหม่';
-  $('p-form').innerHTML = PATIENT_FIELDS.map((f) => renderField(f, patient || {})).join('');
+  $('p-form').innerHTML = PATIENT_INFO_FIELDS.map((f) => renderField(f, patient || {})).join('');
+  // รอบฟอกประจำ: แสดงเฉพาะรอบที่เปิดอยู่ พร้อมเวลาเริ่ม (รอบเดิมของผู้ป่วยยังเลือกค้างไว้ได้)
+  const shifts = await api('/shifts');
+  const shiftField = {
+    ...PATIENT_SHIFT_FIELDS[0],
+    options: shifts.filter((x) => (x.active && x.beds > 0) || x.shift === patient?.regular_shift)
+      .map((x) => [String(x.shift), `รอบ ${x.shift}${x.start_time ? ` (${x.start_time.slice(0, 5)} น.)` : ''}${x.active ? '' : ' ปิดอยู่'}`]),
+  };
+  $('p-shift-form').innerHTML = [shiftField, PATIENT_SHIFT_FIELDS[1]].map((f) => renderField(f, patient || {})).join('');
   $('p-save').textContent = patient ? 'บันทึกข้อมูลผู้ป่วย' : 'เพิ่มผู้ป่วย';
   // ไฟล์ รูป และการลบ ใช้ได้หลังบันทึกผู้ป่วยแล้ว
   $('p-delete').hidden = !patient;
@@ -110,10 +124,14 @@ $('p-save').addEventListener('click', () => {
   if (needUser('p-msg')) return;
   const data = {};
   for (const f of PATIENT_FIELDS) {
-    const value = readField($('p-form'), f);
-    if (!patient || String(value ?? '') !== fieldValue(patient, f)) data[f.name] = value;
+    const value = readField(PATIENT_SHIFT_FIELDS.includes(f) ? $('p-shift-form') : $('p-form'), f);
+    const before = fieldValue(patient, f);
+    const same = f.type === 'checklist' ? JSON.stringify([...value].sort()) === JSON.stringify([...before].sort()) : String(value ?? '') === before;
+    if (!patient || !same) data[f.name] = value;
   }
-  const missing = PATIENT_FIELDS.filter((f) => f.required && !(patient ? data[f.name] ?? patient[f.name] : data[f.name]));
+  const finalValue = (f) => (Object.hasOwn(data, f.name) ? data[f.name] : patient?.[f.name]);
+  const isEmpty = (v) => v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length);
+  const missing = PATIENT_FIELDS.filter((f) => f.required && isEmpty(finalValue(f)));
   if (missing.length) return say('กรุณากรอก ' + missing.map((f) => f.label).join(', '));
   if (patient && !Object.keys(data).length) return say('ไม่มีการเปลี่ยนแปลง');
   act(async () => {
