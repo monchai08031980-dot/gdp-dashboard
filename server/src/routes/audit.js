@@ -1,0 +1,21 @@
+import { Router } from 'express';
+import { pool } from '../db.js';
+
+const router = Router();
+
+// ประวัติการแก้ไขของระเบียนหนึ่ง ๆ: GET /api/audit?table=dialysis_sessions&record_id=...
+router.get('/', async (req, res) => {
+  const params = [];
+  const where = [];
+  if (req.query.table) where.push(`table_name = $${params.push(req.query.table)}`);
+  if (req.query.record_id) where.push(`record_id = $${params.push(req.query.record_id)}`);
+  const { rows } = await pool.query(
+    `SELECT id, table_name, record_id, action, changed_by, reason, changed_fields, old_data, new_data, changed_at
+     FROM audit_log ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+     ORDER BY changed_at DESC, id DESC LIMIT 200`,
+    params,
+  );
+  res.json(rows);
+});
+
+export default router;

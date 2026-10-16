@@ -1,0 +1,62 @@
+// ต้องมี PostgreSQL ที่ migrate แล้ว (ดู README) ใช้ข้อมูลจำลองเท่านั้น
+import { test, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { pool, withAudit } from '../src/db.js';
+import { app } from '../src/app.js';
+
+const server = app.listen(0);
+const base = `http://localhost:${server.address().port}/api`;
+after(async () => { server.close(); await pool.end(); });
+
+const call = (path, method = 'GET', body, user = 'test-nurse', reason) =>
+  fetch(base + path, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(user && { 'X-User-Name': encodeURIComponent(user) }),
+      ...(reason && { 'X-Edit-Reason': encodeURIComponent(reason) }),
+    },
+    body: body && JSON.stringify(body),
+  });
+
+test('ทุกการสร้างและแก้ไขรอบฟอกถูกบันทึกใน audit log', async () => {
+  const hn = `TEST-${Date.now()}`;
+  const patient = await (await call('/patients', 'POST', { hn, first_name: 'ทดสอบ', last_name: 'จำลอง', sex: 'F' })).json();
+  const session = await (await call('/sessions', 'POST', { patient_id: patient.id, session_date: '2026-10-16', bed_no: 5, pre_weight_kg: 60.5 })).json();
+  assert.equal(session.session_date, '2026-10-16');
+
+  const res = await call(`/sessions/${session.id}`, 'PATCH', { pre_weight_kg: 61.2, bed_no: 5 }, 'พยาบาล ค', 'ชั่งน้ำหนักใหม่');
+  assert.equal(res.status, 200);
+
+  const log = await (await call(`/audit?table=dialysis_sessions&record_id=${session.id}`)).json();
+  assert.deepEqual(log.map((a) => a.action), ['UPDATE', 'INSERT']);
+  assert.equal(log[0].changed_by, 'พยาบาล ค');
+  assert.equal(log[0].reason, 'ชั่งน้ำหนักใหม่');
+  assert.deepEqual(log[0].changed_fields, ['pre_weight_kg']);
+  assert.equal(log[0].old_data.pre_weight_kg, 60.5);
+  assert.equal(log[0].new_data.pre_weight_kg, 61.2);
+
+  await withAudit('test-cleanup', 'ลบข้อมูลทดสอบ', async (db) => {
+    await db.query('DELETE FROM dialysis_sessions WHERE id = $1', [session.id]);
+    await db.query('DELETE FROM patients WHERE id = $1', [patient.id]);
+  });
+});
+
+test('แก้ไขโดยไม่ระบุผู้บันทึกไม่ได้', async () => {
+  const res = await call('/patients', 'POST', { hn: `TEST-ANON-${Date.now()}`, first_name: 'ก', last_name: 'ข' }, null);
+  assert.equal(res.status, 401);
+});
+
+test('แก้ไขหรือลบ audit log ไม่ได้', async () => {
+  await assert.rejects(
+    withAudit('x', null, (db) => db.query('DELETE FROM audit_log')),
+    /append-only/,
+  );
+});
+
+test('ฐานข้อมูลปฏิเสธการเขียนที่ไม่ได้ตั้งชื่อผู้บันทึก แม้จะข้าม API', async () => {
+  await assert.rejects(
+    pool.query("INSERT INTO patients (hn, first_name, last_name) VALUES ('TEST-RAW', 'ก', 'ข')"),
+    /app.user_name must be set/,
+  );
+});

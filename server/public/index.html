@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hemo Sync AI · ระบบบันทึกฟอกเลือด</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Hemo Sync AI</h1>
+      <p class="sub">ระบบบันทึกฟอกเลือด ศูนย์ไตเทียมหนองบัวลำภู</p>
+    </div>
+    <label class="user">ผู้บันทึก <input id="user" placeholder="ชื่อพยาบาล"></label>
+  </header>
+  <div class="banner">ข้อมูลจำลองสำหรับทดสอบเท่านั้น ไม่ใช่ข้อมูลผู้ป่วยจริง</div>
+
+  <main>
+    <section class="panel">
+      <div class="toolbar">
+        <h2>รอบการฟอกเลือด</h2>
+        <input type="date" id="date">
+        <button id="all" class="ghost">ทั้งหมด</button>
+      </div>
+      <table>
+        <thead><tr><th>วันที่</th><th>รอบ</th><th>เตียง</th><th>HN</th><th>ชื่อ-สกุล</th><th>น้ำหนักก่อน/หลัง</th><th>UF จริง</th><th>สถานะ</th></tr></thead>
+        <tbody id="sessions"></tbody>
+      </table>
+    </section>
+
+    <section class="panel" id="detail" hidden>
+      <div class="toolbar">
+        <h2 id="detail-title">แบบบันทึกการฟอกเลือด (519)</h2>
+        <button id="close" class="ghost">ปิด</button>
+      </div>
+      <form id="form"></form>
+      <div class="actions">
+        <input id="reason" placeholder="เหตุผลที่แก้ไข (ถ้ามี)">
+        <button id="save">บันทึก</button>
+        <span id="msg"></span>
+      </div>
+      <h3>สัญญาณชีพระหว่างฟอก</h3>
+      <table>
+        <thead><tr><th>เวลา</th><th>BP</th><th>ชีพจร</th><th>QB</th><th>VP</th><th>AP</th><th>TMP</th><th>UF สะสม</th></tr></thead>
+        <tbody id="vitals"></tbody>
+      </table>
+      <h3>ประวัติการแก้ไข (Audit log)</h3>
+      <table>
+        <thead><tr><th>เวลา</th><th>การกระทำ</th><th>ผู้แก้ไข</th><th>ฟิลด์ที่เปลี่ยน</th><th>เหตุผล</th></tr></thead>
+        <tbody id="audit"></tbody>
+      </table>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
