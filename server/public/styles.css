@@ -43,6 +43,13 @@ legend { font-weight: 600; color: var(--accent); padding: 0 4px; }
 .patient b { color: var(--accent); font-weight: 600; margin-right: 4px; }
 .field { display: grid; gap: 3px; font-size: 13px; color: var(--muted); }
 .field.wide { grid-column: 1 / -1; }
+.date-field { position: relative; display: inline-flex; align-items: center; gap: 4px; }
+.field .date-field { display: flex; min-width: 0; width: 100%; }
+.date-field .date-text { width: 9.5em; font-variant-numeric: tabular-nums; }
+.field .date-field .date-text { flex: 1; width: auto; min-width: 0; }
+.date-field .date-text[aria-invalid="true"] { border-color: #b91c1c; }
+.date-field .date-btn { padding: 4px 8px; line-height: 1.2; }
+.date-field .date-native { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; pointer-events: none; }
 .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px 12px; }
 label.check { display: flex; align-items: center; gap: 6px; color: var(--text); font-size: 14px; }
 label.check input { width: auto; }

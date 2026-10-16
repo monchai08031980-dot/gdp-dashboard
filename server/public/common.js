@@ -41,8 +41,32 @@ export async function api(path, options = {}, reasonId = 'reason') {
 }
 
 export const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-export const fmtTime = (t) => (t ? new Date(t).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '');
-export const fmtDate = (d) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { dateStyle: 'medium' }) : '');
+// วันที่แสดงและกรอกเป็น DD/MM/YYYY ปี พ.ศ. (ถ้าจะใช้ ค.ศ. ให้ตั้ง YEAR_OFFSET = 0)
+// ภายในระบบและ API ยังเป็น YYYY-MM-DD (ค.ศ.) เหมือนเดิม
+const YEAR_OFFSET = 543;
+const pad2 = (n) => String(n).padStart(2, '0');
+export const isoToDmy = (iso) => {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).slice(0, 10).split('-');
+  return `${d}/${m}/${Number(y) + YEAR_OFFSET}`;
+};
+// รับ 16/10/2569 หรือ 16/10/2026 (ปีตั้งแต่ 2400 ถือเป็น พ.ศ.) คืน YYYY-MM-DD หรือ null ถ้าไม่ใช่วันที่จริง
+export const dmyToIso = (text) => {
+  const m = String(text).trim().match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (!m) return null;
+  const d = Number(m[1]), mo = Number(m[2]);
+  let y = Number(m[3]);
+  if (YEAR_OFFSET && y >= 2400) y -= YEAR_OFFSET;
+  const dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return `${y}-${pad2(mo)}-${pad2(d)}`;
+};
+export const fmtDate = (d) => isoToDmy(d);
+export const fmtTime = (t) => {
+  if (!t) return '';
+  const dt = new Date(t);
+  return `${pad2(dt.getDate())}/${pad2(dt.getMonth() + 1)}/${dt.getFullYear() + YEAR_OFFSET} ${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`;
+};
 export const hhmm = (t) => (t ? String(t).slice(0, 5) : '');
 export const age = (birth, on) => {
   if (!birth) return '';
@@ -118,3 +142,71 @@ export async function blobUrl(path) {
   if (!res.ok) throw new Error('เปิดไฟล์ไม่ได้');
   return URL.createObjectURL(await res.blob());
 }
+
+// ---------------------------------------------------------------------------
+// ช่องวันที่ทุกช่อง (input type=date) แสดงและพิมพ์เป็น DD/MM/YYYY พร้อมปุ่มปฏิทิน
+// ช่อง type=date เดิมยังอยู่ (ซ่อนไว้) และเก็บค่า YYYY-MM-DD โค้ดเดิมจึงอ่าน .value ได้เหมือนเดิม
+// ---------------------------------------------------------------------------
+const nativeValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+
+function enhanceDate(input) {
+  if (input.dataset.dmy) return;
+  input.dataset.dmy = '1';
+  const text = document.createElement('input');
+  text.type = 'text';
+  text.inputMode = 'numeric';
+  text.autocomplete = 'off';
+  text.placeholder = 'วว/ดด/ปปปป';
+  text.className = 'date-text';
+  text.required = input.required;
+  input.required = false;
+  text.setAttribute('aria-label', input.getAttribute('aria-label') || input.closest('label')?.querySelector('span')?.textContent || 'วันที่');
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'ghost date-btn';
+  btn.textContent = '📅';
+  btn.setAttribute('aria-label', 'เลือกจากปฏิทิน');
+  const wrap = document.createElement('span');
+  wrap.className = 'date-field';
+  input.replaceWith(wrap);
+  wrap.append(text, btn, input);
+  input.classList.add('date-native');
+  input.tabIndex = -1;
+  input.setAttribute('aria-hidden', 'true');
+
+  const show = () => { text.value = isoToDmy(nativeValue.get.call(input)); text.removeAttribute('aria-invalid'); text.title = ''; };
+  // โค้ดที่ตั้งค่า input.value ตรง ๆ ให้ช่องที่แสดงเปลี่ยนตาม
+  Object.defineProperty(input, 'value', {
+    configurable: true,
+    get() { return nativeValue.get.call(this); },
+    set(v) { nativeValue.set.call(this, v); show(); },
+  });
+  show();
+  text.addEventListener('change', () => {
+    const raw = text.value.trim();
+    const iso = raw ? dmyToIso(raw) : '';
+    const problem = iso === null ? 'วันที่ไม่ถูกต้อง ใช้รูปแบบ วว/ดด/ปปปป'
+      : iso && input.min && iso < input.min ? `ต้องไม่ก่อน ${isoToDmy(input.min)}`
+        : iso && input.max && iso > input.max ? `ต้องไม่หลัง ${isoToDmy(input.max)}` : '';
+    if (problem) {
+      nativeValue.set.call(input, '');
+      text.setAttribute('aria-invalid', 'true');
+      text.title = problem;
+      return;
+    }
+    nativeValue.set.call(input, iso);
+    show();
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  input.addEventListener('change', show);
+  btn.addEventListener('click', () => {
+    try { input.showPicker(); } catch { text.focus(); }
+  });
+}
+
+const enhanceAll = (root) => root.querySelectorAll?.('input[type="date"]:not([data-dmy])').forEach(enhanceDate);
+enhanceAll(document);
+new MutationObserver((records) => {
+  for (const r of records) for (const n of r.addedNodes) if (n.nodeType === 1) { if (n.matches('input[type="date"]')) enhanceDate(n); else enhanceAll(n); }
+}).observe(document.body, { childList: true, subtree: true });

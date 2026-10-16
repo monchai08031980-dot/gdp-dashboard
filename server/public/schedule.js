@@ -16,7 +16,10 @@ const addDays = (s, n) => { const d = parse(s); d.setDate(d.getDate() + n); retu
 const weekday = (s) => (parse(s).getDay() + 6) % 7; // 0 = จันทร์
 const today = () => iso(new Date());
 const monthLabel = (s) => parse(s).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
-const dayLabel = (s, opts = { weekday: 'short', day: 'numeric', month: 'short' }) => parse(s).toLocaleDateString('th-TH', opts);
+const weekdayName = (s, style = 'short') => parse(s).toLocaleDateString('th-TH', { weekday: style });
+// หัวตาราง: "ศ. 16/10" ส่วนที่อื่นใช้วันที่เต็ม "ศ. 16/10/2569"
+const dayLabel = (s) => `${weekdayName(s)} ${s.slice(8, 10)}/${s.slice(5, 7)}`;
+const dayFull = (s, style = 'short') => `${weekdayName(s, style)} ${fmtDate(s)}`;
 
 function range() {
   const a = state.anchor;
@@ -47,8 +50,8 @@ function render() {
     b.setAttribute('aria-pressed', b.dataset.mode === state.mode);
   }
   const [from, to] = range();
-  $('s-range').textContent = state.mode === 'day' ? dayLabel(from, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-    : state.mode === 'week' ? `${dayLabel(from)} – ${dayLabel(to, { day: 'numeric', month: 'short', year: 'numeric' })}`
+  $('s-range').textContent = state.mode === 'day' ? dayFull(from, 'long')
+    : state.mode === 'week' ? `${fmtDate(from)} – ${fmtDate(to)}`
       : monthLabel(state.anchor);
   if (!activeShifts().length) {
     $('s-board').innerHTML = '<p class="msg">ยังไม่ได้เปิดรอบฟอก กด "ตั้งค่ารอบ" เพื่อเปิดรอบและกำหนดจำนวนเตียง</p>';
@@ -81,7 +84,7 @@ function renderWeek(from) {
       ${days.map((d) => {
         const list = entriesOn(d, s.shift);
         return `<td><div class="count"><span>${list.length}/${s.beds}</span>${list.length < s.beds && d >= t
-          ? `<button type="button" class="ghost add-mini" data-add="${d}|${s.shift}|" aria-label="นัดรอบ ${s.shift} วันที่ ${dayLabel(d)}">+</button>` : ''}</div>
+          ? `<button type="button" class="ghost add-mini" data-add="${d}|${s.shift}|" aria-label="นัดรอบ ${s.shift} วันที่ ${fmtDate(d)}">+</button>` : ''}</div>
           ${list.map((e) => `<button type="button" class="chip" data-entry="${e.id}" title="${esc(`${shortName(e)} · HN ${e.hn}`)}">${e.bed_no ? `${e.bed_no} · ` : ''}${esc(shortName(e))}</button>`).join('')}</td>`;
       }).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
@@ -94,7 +97,7 @@ function renderMonth(from, to) {
   return `<div class="table-scroll"><table class="month">
     <thead><tr>${WEEKDAYS.map((w) => `<th>${w}</th>`).join('')}</tr></thead>
     <tbody>${weeks.map((w) => `<tr>${w.map((d) => `<td class="${d.slice(0, 7) !== month ? 'out' : ''} ${d === t ? 'today' : ''}">
-      <button type="button" class="daybtn" data-day="${d}" aria-label="ดูวันที่ ${dayLabel(d, { day: 'numeric', month: 'long' })}">
+      <button type="button" class="daybtn" data-day="${d}" aria-label="ดูวันที่ ${fmtDate(d)}">
         <span class="daynum">${parse(d).getDate()}</span>
         ${activeShifts().map((s) => { const n = entriesOn(d, s.shift).length; return `<span class="bar ${n >= s.beds ? 'full' : n ? '' : 'zero'}"><span>รอบ ${s.shift}</span><span>${n}/${s.beds}</span></span>`; }).join('')}
       </button></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
@@ -310,7 +313,7 @@ $('s-form').addEventListener('submit', async (e) => {
     $('s-range').textContent += ` · นัดแล้ว ${rows.length} วัน`;
   } catch (err) {
     $('s-msg').textContent = err.message;
-    $('s-conflicts').innerHTML = (err.body?.conflicts || []).map((c) => `<li>${esc(dayLabel(c.date, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }))}: ${esc(c.problem)}</li>`).join('');
+    $('s-conflicts').innerHTML = (err.body?.conflicts || []).map((c) => `<li>${esc(dayFull(c.date))}: ${esc(c.problem)}</li>`).join('');
   }
 });
 
@@ -346,10 +349,10 @@ async function openPd(patientId, entry) {
     ['อายุ', p.birth_date ? `${age(p.birth_date, t)} ปี` : '-'],
   ].map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('');
   $('pd-entry').innerHTML = entry ? `<div class="chosen">
-      <b>นัด ${esc(dayLabel(entry.schedule_date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</b>
+      <b>นัด ${esc(dayFull(entry.schedule_date, 'long'))}</b>
       <span>รอบ ${entry.shift}${entry.bed_no ? ` · เตียง ${entry.bed_no}` : ''}</span>${entry.note ? `<span>${esc(entry.note)}</span>` : ''}
       <button type="button" class="ghost danger add-mini" id="pd-cancel-entry">ยกเลิกนัดนี้</button><span class="msg" id="pd-msg"></span></div>` : '';
-  $('pd-upcoming').innerHTML = upcoming.slice(0, 10).map((e) => `<li><span>${esc(dayLabel(e.schedule_date))}</span><span>รอบ ${e.shift}${e.bed_no ? ` · เตียง ${e.bed_no}` : ''}</span></li>`).join('') || '<li>ไม่มีนัด</li>';
+  $('pd-upcoming').innerHTML = upcoming.slice(0, 10).map((e) => `<li><span>${esc(dayFull(e.schedule_date))}</span><span>รอบ ${e.shift}${e.bed_no ? ` · เตียง ${e.bed_no}` : ''}</span></li>`).join('') || '<li>ไม่มีนัด</li>';
   $('pd-recent').innerHTML = recent.map((s) => `<li><span>${esc(fmtDate(s.session_date))}</span><span>${s.total_uf_ml != null ? `UF ${s.total_uf_ml} ml` : esc(s.status)}</span></li>`).join('') || '<li>ยังไม่เคยฟอก</li>';
   $('pd-files').innerHTML = files.filter((f) => f.kind === 'DOCUMENT').map((f) => `<li><span>${esc(f.file_name)}</span><span>${f.mime_type === 'application/pdf' ? 'PDF' : 'JPG'}</span></li>`).join('') || '<li>ไม่มีไฟล์</li>';
   $('pd').scrollIntoView({ behavior: 'smooth' });
