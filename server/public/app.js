@@ -135,26 +135,26 @@ let readerEnabled = null;
 const nowHm = () => new Date().toTimeString().slice(0, 5);
 const capMsg = (text) => { $('cap-msg').textContent = text; };
 
-// ค่าของเครื่องที่ถ้าไม่เปลี่ยนให้ใช้ค่าเดิม: แถวที่ไม่มีค่าบนจอ (ไม่ใช่อ่านไม่ตรงกัน) ใช้ค่าจากแถวก่อนหน้า
-// แถวแรกใช้ค่าจากบันทึกระหว่างฟอกแถวล่าสุดที่เวลาก่อนหน้า
+// ค่าของเครื่องที่ถ้าไม่เปลี่ยนให้ใช้ค่าเดิม กรอกให้ครบทุกช่องทุกแถว (ช่องสีฟ้า ให้พยาบาลตรวจ)
+// ช่องว่างใช้ค่าจากแถวก่อนหน้า แถวแรกใช้บันทึกระหว่างฟอกแถวล่าสุดที่เวลาก่อนหน้า
+// ถ้ายังไม่มีค่าก่อนหน้าเลย ใช้ค่าแรกที่อ่านได้ในแถวถัดไป (ยกเว้น Total ml)
 const CARRY_FIELDS = ['bfr_ml_min', 'pv_mmhg', 'tmp_mmhg', 'conductivity_ms_cm', 'ufr', 'total_uf_ml'];
 function carryForward(rows) {
-  const labels = Object.fromEntries(CAPTURE_FIELDS.map((f) => [f.name, f.label]));
   const firstTime = rows.find((r) => r.values.recorded_time)?.values.recorded_time;
   const earlier = (current?.vitals || [])
     .filter((v) => firstTime && hhmm(v.recorded_time) < firstTime)
     .sort((a, b) => String(a.recorded_time).localeCompare(String(b.recorded_time)));
-  let prev = earlier.at(-1) || {};
-  return rows.map((r) => {
-    const values = { ...r.values };
-    const carried = [];
-    for (const name of CARRY_FIELDS) {
-      const notOnScreen = !r.missing || r.missing.includes(labels[name]);
-      if (values[name] == null && notOnScreen && prev[name] != null) { values[name] = prev[name]; carried.push(name); }
+  const out = rows.map((r) => ({ ...r, values: { ...r.values }, carried: [] }));
+  for (const name of CARRY_FIELDS) {
+    // Total ml เป็นยอดสะสม ใช้ค่าของแถวถัดไปย้อนขึ้นไม่ได้ (จะได้ค่ามากเกินจริง)
+    const later = name === 'total_uf_ml' ? null : out.find((r) => r.values[name] != null)?.values[name];
+    let prev = earlier.at(-1)?.[name] ?? later ?? null;
+    for (const r of out) {
+      if (r.values[name] == null && prev != null) { r.values[name] = prev; r.carried.push(name); }
+      prev = r.values[name] ?? prev;
     }
-    prev = { ...prev, ...Object.fromEntries(CARRY_FIELDS.filter((n) => values[n] != null).map((n) => [n, values[n]])) };
-    return { ...r, values, carried };
-  });
+  }
+  return out;
 }
 
 // ตารางตรวจค่าที่อ่านได้ แถวละหนึ่งเวลา ติ๊กเลือกแถวที่จะบันทึก ช่องที่อ่านไม่ได้เป็นสีเหลือง
@@ -287,7 +287,7 @@ async function readScreen() {
     }
     shown = carryForward(shown);
     const carried = shown.reduce((n, r) => n + (r.carried?.length || 0), 0);
-    if (carried) extra.push(`ช่องสีฟ้า ${carried} ช่อง ไม่มีค่าบนจอ ใช้ค่าเดิมจากแถวก่อนหน้า (BFR, PV, TMP, Conduct, UFR, Total ml)`);
+    if (carried) extra.push(`ช่องสีฟ้า ${carried} ช่อง ใช้ค่าเดิม (BFR, PV, TMP, Conduct, UFR, Total ml) กรุณาตรวจกับหน้าจอเครื่อง`);
     renderReview(shown);
     const dups = $('cap-review').querySelectorAll('[data-pick]:not(:checked)').length;
     if (dups) extra.push(`${dups} แถวมีเวลานี้อยู่แล้วในบันทึกระหว่างฟอก จึงไม่ได้ติ๊กไว้ กันบันทึกซ้ำ`);
