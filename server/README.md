@@ -12,7 +12,7 @@ npm install
 cp .env.example .env            # แก้ DATABASE_URL ตามเครื่อง
 createdb hemo_sync              # หรือสร้างผ่าน psql
 DATABASE_URL=postgres://hemo:hemo@localhost:5432/hemo_sync npm run db:migrate
-npm run db:seed                 # ผู้ป่วยจำลอง 10 ราย, การฟอก 30 รอบ
+npm run db:seed                 # ผู้ป่วยจำลอง 190 ราย พร้อมรอบประจำ ประวัติการฟอก และนัด 4 สัปดาห์
 npm start                       # http://localhost:3000
 npm test                        # ต้องมีฐานข้อมูลที่ migrate แล้ว
 ```
