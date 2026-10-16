@@ -103,14 +103,72 @@ function renderMonth(from, to) {
 // ---------------------------------------------------------------------------
 // ตั้งค่ารอบ
 // ---------------------------------------------------------------------------
+const DAY_KEYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']; // ตรงกับ WEEKDAYS
+
+// การ์ดต่อรอบ: สถานะ เวลา จำนวนเตียง ผู้ป่วยประจำแยกวัน นัดวันนี้ และรายชื่อผู้ป่วยประจำ
 function renderSettings() {
   $('s-shift-rows').innerHTML = state.shifts.map((s) => `
-    <div class="shift-row" data-shift="${s.shift}">
-      <b><input type="checkbox" id="s-on-${s.shift}" ${s.active ? 'checked' : ''}><label for="s-on-${s.shift}">เปิดรอบ ${s.shift}</label></b>
-      <label for="s-beds-${s.shift}">ผู้ป่วย</label><input id="s-beds-${s.shift}" type="number" min="0" max="30" value="${s.beds}">
-      <label for="s-time-${s.shift}">เริ่ม</label><input id="s-time-${s.shift}" type="time" value="${(s.start_time || '').slice(0, 5)}">
+    <div class="shift-card" data-shift="${s.shift}">
+      <div class="sc-head">
+        <label class="sc-title"><input type="checkbox" id="s-on-${s.shift}" ${s.active ? 'checked' : ''}> รอบ ${s.shift}</label>
+        <span class="sc-badge" id="s-badge-${s.shift}"></span>
+      </div>
+      <div class="sc-inputs">
+        <label>เวลาเริ่ม <input id="s-time-${s.shift}" type="time" value="${(s.start_time || '').slice(0, 5)}"></label>
+        <label>รับผู้ป่วย <input id="s-beds-${s.shift}" type="number" min="0" max="30" value="${s.beds}"> เตียง</label>
+      </div>
+      <div class="sc-stats" id="s-stats-${s.shift}"></div>
+      <button type="button" class="link" data-act="list" ${s.regular_patients ? '' : 'disabled'}>ดูรายชื่อผู้ป่วยประจำ (${s.regular_patients ?? 0} ราย)</button>
+      <div class="sc-list" id="s-list-${s.shift}" hidden></div>
     </div>`).join('');
+  for (const s of state.shifts) renderShiftStats(s.shift);
 }
+
+// สรุปของรอบตามค่าที่กรอกอยู่ (ยังไม่บันทึกก็เห็นผลทันที)
+function renderShiftStats(shift) {
+  const s = state.shifts.find((x) => x.shift === shift);
+  const on = $(`s-on-${shift}`).checked;
+  const beds = Math.max(0, Math.min(30, Number($(`s-beds-${shift}`).value) || 0));
+  const open = on && beds > 0;
+  const badge = $(`s-badge-${shift}`);
+  badge.textContent = open ? 'เปิด' : 'ปิด';
+  badge.className = 'sc-badge ' + (open ? 'on' : 'off');
+  $(`s-on-${shift}`).closest('.shift-card').classList.toggle('closed', !open);
+  const byDay = s.regular_by_day || {};
+  const over = DAY_KEYS.filter((d) => (byDay[d] || 0) > beds);
+  const booked = s.booked_today ?? 0;
+  const warn = [];
+  if (!open && s.regular_patients) warn.push(`รอบนี้ปิดอยู่ แต่ยังมีผู้ป่วยประจำ ${s.regular_patients} ราย ควรย้ายไปรอบอื่น`);
+  if (open && over.length) warn.push(`ผู้ป่วยประจำเกินจำนวนเตียงในวัน ${over.map((d) => WEEKDAYS[DAY_KEYS.indexOf(d)]).join(' ')}`);
+  if (open && booked > beds) warn.push(`วันนี้นัดไว้ ${booked} ราย มากกว่าจำนวนเตียง`);
+  $(`s-stats-${shift}`).innerHTML = `
+    <div class="sc-line">${open ? `เริ่ม ${$(`s-time-${shift}`).value || '-'} น. · ${beds} เตียง` : 'ไม่เปิดรอบนี้'}</div>
+    <div class="sc-line">ผู้ป่วยประจำ <b>${s.regular_patients ?? 0}</b> ราย${open ? ` · วันนี้นัดแล้ว <b>${booked}/${beds}</b> เตียง (ว่าง ${Math.max(0, beds - booked)})` : ''}</div>
+    <div class="sc-days" aria-label="ผู้ป่วยประจำแยกตามวัน">${DAY_KEYS.map((d, i) => {
+      const n = byDay[d] || 0;
+      const cls = !open ? 'zero' : n > beds ? 'over' : n === beds ? 'full' : n ? '' : 'zero';
+      return `<span class="sc-day ${cls}"><span>${WEEKDAYS[i]}</span><b>${n}${open ? `/${beds}` : ''}</b></span>`;
+    }).join('')}</div>
+    ${warn.map((w) => `<div class="sc-warn">${esc(w)}</div>`).join('')}`;
+}
+
+$('s-shift-rows').addEventListener('input', (e) => {
+  const card = e.target.closest('.shift-card');
+  if (card) renderShiftStats(Number(card.dataset.shift));
+});
+$('s-shift-rows').addEventListener('click', async (e) => {
+  const row = e.target.closest('tr[data-patient]');
+  if (row) return document.dispatchEvent(new CustomEvent('open-patient', { detail: row.dataset.patient }));
+  if (e.target.dataset.act !== 'list') return;
+  const shift = Number(e.target.closest('.shift-card').dataset.shift);
+  const box = $(`s-list-${shift}`);
+  box.hidden = !box.hidden;
+  if (box.hidden) return;
+  const people = await api(`/patients?regular_shift=${shift}&limit=500`);
+  box.innerHTML = `<table><thead><tr><th>HN</th><th>ชื่อ</th><th>วันที่มาฟอก</th></tr></thead><tbody>${people.map((p) => `
+    <tr class="clickable" data-patient="${p.id}"><td>${esc(p.hn)}</td><td>${esc(`${p.prefix || ''}${p.first_name} ${p.last_name}`)}</td>
+    <td>${DAY_KEYS.filter((d) => (p.regular_days || []).includes(d)).map((d) => WEEKDAYS[DAY_KEYS.indexOf(d)]).join(' ')}</td></tr>`).join('')}</tbody></table>`;
+});
 
 // หน้าผู้ป่วยทั้งหมดขอเปิดการตั้งค่ารอบ
 document.addEventListener('open-shift-settings', async () => {

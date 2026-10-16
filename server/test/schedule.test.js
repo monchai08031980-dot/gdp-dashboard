@@ -16,14 +16,14 @@ const call = async (path, method = 'GET', body) => {
   return { status: res.status, body: res.status === 204 ? null : await res.json() };
 };
 
-// ใช้ปีไกล ๆ เพื่อไม่ชนกับข้อมูลจำลองอื่น
-const year = 2090 + Math.floor(Math.random() * 9);
+// ใช้ปีไกล ๆ แบบสุ่มช่วงกว้าง เพื่อไม่ชนกับข้อมูลจำลองอื่นหรือการรันทดสอบครั้งก่อน
+const year = 2100 + Math.floor(Math.random() * 900);
 const d = (m, day) => `${year}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
 test('นัดฟอกล่วงหน้าหลายวัน กันผู้ป่วยซ้ำในรอบด้วย HN และชื่อ', async () => {
   const stamp = Date.now();
-  const a = (await call('/patients', 'POST', { hn: `TEST-S-A-${stamp}`, first_name: 'ซ้ำ', last_name: 'ชื่อเดียวกัน' })).body;
-  const b = (await call('/patients', 'POST', { hn: `TEST-S-B-${stamp}`, first_name: 'ซ้ำ', last_name: 'ชื่อเดียวกัน' })).body;
+  const a = (await call('/patients', 'POST', { hn: `TEST-S-A-${stamp}`, first_name: 'ซ้ำ', last_name: `ชื่อเดียวกัน${stamp}` })).body;
+  const b = (await call('/patients', 'POST', { hn: `TEST-S-B-${stamp}`, first_name: 'ซ้ำ', last_name: `ชื่อเดียวกัน${stamp}` })).body;
   const c = (await call('/patients', 'POST', { hn: `TEST-S-C-${stamp}`, first_name: 'อีก', last_name: 'คนหนึ่ง' })).body;
 
   const booked = await call('/schedule', 'POST', { patient_id: a.id, shift: 1, dates: [d(1, 5), d(1, 8), d(1, 12)] });
@@ -78,4 +78,19 @@ test('รอบที่ปิดหรือเต็มจองไม่ไ�
   } finally {
     await call('/shifts', 'PUT', original);
   }
+});
+
+test('การตั้งค่ารอบแสดงจำนวนผู้ป่วยประจำแยกวัน และกรองรายชื่อตามรอบได้', async () => {
+  const hn = `TEST-SC-${Date.now()}`;
+  const res = await fetch(`${base}/patients`, { method: 'POST', headers: { 'X-User-Name': 'test-nurse', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hn, first_name: 'สรุป', last_name: 'รอบ', regular_shift: 1, regular_days: ['MON', 'FRI'] }) });
+  assert.equal(res.status, 201);
+  const shifts = await (await fetch(`${base}/shifts`)).json();
+  const one = shifts.find((s) => s.shift === 1);
+  assert.ok(one.regular_patients >= 1);
+  assert.ok(one.regular_by_day.MON >= 1 && one.regular_by_day.FRI >= 1);
+  assert.equal(typeof one.booked_today, 'number');
+  const list = await (await fetch(`${base}/patients?regular_shift=1&q=${hn}`)).json();
+  assert.deepEqual(list.map((p) => p.hn), [hn]);
+  assert.equal((await (await fetch(`${base}/patients?regular_shift=2&q=${hn}`)).json()).length, 0);
 });

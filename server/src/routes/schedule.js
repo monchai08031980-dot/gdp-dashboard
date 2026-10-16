@@ -6,8 +6,17 @@ import { pool, withAudit } from '../db.js';
 // ---------------------------------------------------------------------------
 export const shifts = Router();
 
+// แต่ละรอบมีสรุปผู้ป่วยประจำ (รวมและแยกวัน) และจำนวนนัดของวันนี้ ไว้แสดงในหน้าตั้งค่ารอบ
 shifts.get('/', async (_req, res) => {
-  const { rows } = await pool.query('SELECT * FROM shift_settings ORDER BY shift');
+  const { rows } = await pool.query(`
+    SELECT s.*,
+      (SELECT count(*)::int FROM patients p WHERE p.active AND p.regular_shift = s.shift) AS regular_patients,
+      (SELECT coalesce(jsonb_object_agg(d, n), '{}') FROM (
+        SELECT d, count(*)::int AS n FROM patients p, unnest(p.regular_days) AS d
+        WHERE p.active AND p.regular_shift = s.shift GROUP BY d) x) AS regular_by_day,
+      (SELECT count(*)::int FROM schedule_entries e
+        WHERE e.shift = s.shift AND e.status = 'PLANNED' AND e.schedule_date = current_date) AS booked_today
+    FROM shift_settings s ORDER BY s.shift`);
   res.json(rows);
 });
 

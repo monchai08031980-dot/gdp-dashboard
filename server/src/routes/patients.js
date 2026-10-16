@@ -10,7 +10,7 @@ const FILE_COLUMNS = 'id, patient_id, kind, file_name, mime_type, size_bytes, up
 
 const router = Router();
 
-// รายชื่อผู้ป่วย: ?q=(HN หรือชื่อ)&limit=&offset= จำนวนทั้งหมดอยู่ใน header X-Total-Count
+// รายชื่อผู้ป่วย: ?q=(HN หรือชื่อ)&regular_shift=&limit=&offset= จำนวนทั้งหมดอยู่ใน header X-Total-Count
 router.get('/', async (req, res) => {
   const params = [];
   const where = ['active'];
@@ -19,6 +19,7 @@ router.get('/', async (req, res) => {
     where.push(`(hn ILIKE $${q} OR first_name ILIKE $${q} OR last_name ILIKE $${q}
       OR concat_ws(' ', first_name, last_name) ILIKE $${q} OR concat(prefix, first_name, ' ', last_name) ILIKE $${q})`);
   }
+  if (req.query.regular_shift) where.push(`regular_shift = $${params.push(Number(req.query.regular_shift) || 0)}`);
   const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 500);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
   const { rows } = await pool.query(
