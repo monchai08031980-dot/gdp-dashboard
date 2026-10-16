@@ -181,15 +181,16 @@ async function pickImage(input) {
 async function readScreen() {
   if (!captureImage || needUser('cap-msg')) return;
   $('cap-read').disabled = true;
-  $('cap-status').textContent = 'กำลังอ่านค่าจากภาพ...';
+  $('cap-status').textContent = 'กำลังอ่านค่าจากภาพ (อ่านสองรอบเพื่อตรวจซ้ำ อาจใช้เวลาถึง 1 นาที)...';
   $('cap-warn').innerHTML = '';
   try {
-    const { values, missing, warnings, notes } = await apiUpload(`/sessions/${current.id}/vitals/read-screen`, captureImage);
+    const { values, warnings, notes } = await apiUpload(`/sessions/${current.id}/vitals/read-screen`, captureImage);
     const unread = CAPTURE_FIELDS.filter((f) => f.name !== 'note' && values[f.name] == null).map((f) => f.name);
     if (values.recorded_time == null) values.recorded_time = nowHm();
     renderReview({ ...values, note: CAPTURE_NOTE }, unread);
-    $('cap-status').textContent = missing.length
-      ? `อ่านได้ ${CAPTURE_FIELDS.length - 1 - unread.length} ค่า ช่องสีเหลืองอ่านไม่ได้ (${missing.join(', ')}) กรุณากรอกเอง`
+    const unreadLabels = CAPTURE_FIELDS.filter((f) => unread.includes(f.name)).map((f) => f.label);
+    $('cap-status').textContent = unread.length
+      ? `อ่านได้แน่นอน ${CAPTURE_FIELDS.length - 1 - unread.length} ค่า ช่องสีเหลือง (${unreadLabels.join(', ')}) กรุณากรอกเองจากหน้าจอเครื่อง`
       : 'อ่านได้ครบทุกค่า';
     $('cap-warn').innerHTML = [...warnings, ...(notes ? [notes] : []), 'กรุณาตรวจค่ากับหน้าจอเครื่องทุกครั้งก่อนบันทึก']
       .map((w) => `<li>${esc(w)}</li>`).join('');
@@ -209,7 +210,7 @@ $('cap-open').addEventListener('click', async () => {
   }
   $('cap-read').hidden = !readerEnabled;
   $('cap-hint').textContent = readerEnabled
-    ? 'ถ่ายภาพหน้าจอเครื่องให้เห็นตัวเลขชัด ระบบจะอ่านค่าให้ แล้วพยาบาลตรวจและแก้ก่อนกดบันทึก ภาพไม่ถูกเก็บในระบบ'
+    ? 'ถ่ายตรงหน้าจอเครื่องให้เห็นตัวเลขชัด ไม่เอียง ไม่สะท้อนแสง ไม่ให้เห็นชื่อผู้ป่วย ระบบอ่านสองรอบและเติมเฉพาะค่าที่ตรงกัน พยาบาลตรวจกับหน้าจอก่อนกดบันทึก ภาพไม่ถูกเก็บในระบบ'
     : 'ยังไม่ได้เปิดใช้ระบบอ่านภาพอัตโนมัติ ถ่ายหรือเลือกภาพแล้วกรอกค่าตามภาพได้เลย';
 });
 $('cap-close').addEventListener('click', closeCapture);

@@ -3,41 +3,19 @@
 // และ ANTHROPIC_API_KEY ไว้ ก่อนใช้กับผู้ป่วยจริงต้องได้รับอนุมัติจากโรงพยาบาลก่อน
 import Anthropic from '@anthropic-ai/sdk';
 
-// ช่วงค่าที่เป็นไปได้ ค่านอกช่วงถือว่าอ่านผิด จะไม่เติมให้และแจ้งเตือนแทน
-export const SCREEN_FIELDS = {
-  bp_sys: { label: 'BP sys', min: 40, max: 300 },
-  bp_dia: { label: 'BP dia', min: 20, max: 200 },
-  pr: { label: 'PR', min: 20, max: 250 },
-  rr: { label: 'RR', min: 4, max: 60 },
-  bfr_ml_min: { label: 'BFR', min: 0, max: 700 },
-  pv_mmhg: { label: 'PV', min: -100, max: 500 },
-  tmp_mmhg: { label: 'TMP', min: -100, max: 600 },
-  conductivity_ms_cm: { label: 'Conduct', min: 5, max: 20 },
-};
+import { SCREEN_FIELDS, SCREEN_PROMPT, SCREEN_READS, reconcileReads } from '../public/screenRead.js';
 
 const nullable = (type) => ({ anyOf: [{ type }, { type: 'null' }] });
 const SCHEMA = {
   type: 'object',
   properties: {
-    recorded_time: { ...nullable('string'), description: 'เวลาบนหน้าจอ รูปแบบ HH:MM (24 ชั่วโมง)' },
+    recorded_time: nullable('string'),
     ...Object.fromEntries(Object.keys(SCREEN_FIELDS).map((k) => [k, nullable('number')])),
-    notes: { type: 'string', description: 'สิ่งที่อ่านไม่ชัดหรือสัญญาณเตือนบนหน้าจอ (ภาษาไทยสั้น ๆ) ถ้าไม่มีให้เป็นค่าว่าง' },
+    notes: { type: 'string' },
   },
   required: ['recorded_time', ...Object.keys(SCREEN_FIELDS), 'notes'],
   additionalProperties: false,
 };
-
-const PROMPT = `ภาพนี้คือหน้าจอเครื่องฟอกไต (hemodialysis machine) ระหว่างการฟอก
-ให้อ่านค่าที่แสดงอยู่บนหน้าจอเท่านั้น:
-- recorded_time: เวลาปัจจุบันบนหน้าจอ (HH:MM) ไม่ใช่เวลาที่เหลือหรือเวลาที่ฟอกไปแล้ว
-- bp_sys / bp_dia: ความดันโลหิตจากการวัดครั้งล่าสุด (mmHg)
-- pr: ชีพจร (pulse rate, ครั้ง/นาที) มักแสดงคู่กับความดัน
-- rr: อัตราการหายใจ (ครั้ง/นาที) ถ้าไม่มีบนหน้าจอให้เป็น null
-- bfr_ml_min: blood flow rate (Qb, ml/min)
-- pv_mmhg: venous pressure (PV, VP, mmHg)
-- tmp_mmhg: transmembrane pressure (TMP, mmHg)
-- conductivity_ms_cm: conductivity ของน้ำยา (mS/cm)
-ถ้าค่าใดไม่มีบนหน้าจอ อ่านไม่ชัด หรือไม่แน่ใจ ให้ใส่ null ห้ามเดาหรือคำนวณเอง`;
 
 let client = null;
 
@@ -48,12 +26,12 @@ async function claudeReader(image, mediaType) {
     max_tokens: 4000,
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
-    output_config: { effort: 'medium', format: { type: 'json_schema', schema: SCHEMA } },
+    output_config: { effort: 'high', format: { type: 'json_schema', schema: SCHEMA } },
     messages: [{
       role: 'user',
       content: [
         { type: 'image', source: { type: 'base64', media_type: mediaType, data: image.toString('base64') } },
-        { type: 'text', text: PROMPT },
+        { type: 'text', text: SCREEN_PROMPT },
       ],
     }],
   });
@@ -78,13 +56,14 @@ function activeReader() {
 }
 export const screenReaderEnabled = () => Boolean(activeReader());
 
-// คืน { values, missing, warnings, notes } ค่าที่ไม่ผ่านการตรวจเป็น null เสมอ
+// อ่านภาพเดียวกัน SCREEN_READS ครั้งแยกกัน แล้วเติมเฉพาะค่าที่ทุกครั้งตรงกัน (ดู public/screenRead.js)
+// คืน { values, missing, warnings, notes } ค่าที่ไม่แน่ใจเป็น null เสมอ
 export async function readMachineScreen(image, mediaType) {
   const read = activeReader();
   if (!read) throw httpError(501, 'ยังไม่ได้เปิดใช้การอ่านภาพหน้าจอเครื่อง (ตั้ง SCREEN_READER=claude และ ANTHROPIC_API_KEY)');
-  let raw;
+  let reads;
   try {
-    raw = await read(image, mediaType);
+    reads = await Promise.all(Array.from({ length: SCREEN_READS }, () => read(image, mediaType)));
   } catch (err) {
     if (err.status && !(err instanceof Anthropic.APIError)) throw err;
     if (err instanceof Anthropic.AuthenticationError) throw httpError(503, 'คีย์ของระบบอ่านภาพไม่ถูกต้อง');
@@ -92,25 +71,7 @@ export async function readMachineScreen(image, mediaType) {
     if (err instanceof Anthropic.APIError) throw httpError(502, 'ระบบอ่านภาพขัดข้อง กรุณาลองใหม่หรือกรอกค่าเอง');
     throw err;
   }
-  const values = {};
-  const missing = [];
-  const warnings = [];
-  const time = typeof raw?.recorded_time === 'string' ? raw.recorded_time.trim().match(/^(\d{1,2})[:.](\d{2})/) : null;
-  values.recorded_time = time && Number(time[1]) < 24 && Number(time[2]) < 60 ? `${time[1].padStart(2, '0')}:${time[2]}` : null;
-  if (!values.recorded_time) missing.push('Time');
-  for (const [name, { label, min, max }] of Object.entries(SCREEN_FIELDS)) {
-    const v = raw?.[name];
-    if (typeof v !== 'number' || !Number.isFinite(v)) {
-      values[name] = null;
-      missing.push(label);
-    } else if (v < min || v > max) {
-      values[name] = null;
-      warnings.push(`${label} อ่านได้ ${v} ซึ่งผิดปกติ ไม่ได้เติมให้ กรุณาตรวจจากเครื่อง`);
-    } else {
-      values[name] = v;
-    }
-  }
-  return { values, missing, warnings, notes: typeof raw?.notes === 'string' ? raw.notes.slice(0, 500) : '' };
+  return reconcileReads(reads);
 }
 
 // ตรวจไฟล์จากเนื้อไฟล์จริง ไม่เชื่อ Content-Type

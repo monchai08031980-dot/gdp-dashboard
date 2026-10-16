@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { pool, withAudit } from '../src/db.js';
 import { app } from '../src/app.js';
 import { setScreenReader } from '../src/screenReader.js';
+import { reconcileReads } from '../public/screenRead.js';
 
 const server = app.listen(0);
 const base = `http://localhost:${server.address().port}/api`;
@@ -27,9 +28,12 @@ test('อ่านภาพหน้าจอเครื่อง: ตรวจ
     if (prev !== undefined) process.env.SCREEN_READER = prev;
 
     let seen = null;
+    let calls = 0;
     setScreenReader(async (image, type) => {
       seen = { size: image.length, type };
-      return { recorded_time: '9:05', bp_sys: 138, bp_dia: 82, pr: 76, rr: null, bfr_ml_min: 300, pv_mmhg: 140, tmp_mmhg: 9999, conductivity_ms_cm: 14.0, notes: '' };
+      calls++;
+      // อ่านสองครั้งได้ PR ไม่ตรงกัน ต้องไม่เติม PR
+      return { recorded_time: '9:05', bp_sys: 138, bp_dia: 82, pr: calls === 1 ? 76 : 78, rr: null, bfr_ml_min: 300, pv_mmhg: 140, tmp_mmhg: 9999, conductivity_ms_cm: 14.0, notes: '' };
     });
     assert.equal((await fetch(base + '/health')).ok, true);
     assert.equal((await upload(path, Buffer.from('not an image'))).status, 415);
@@ -42,10 +46,14 @@ test('อ่านภาพหน้าจอเครื่อง: ตรวจ
     assert.deepEqual(seen, { size: JPEG.length, type: 'image/jpeg' });
     assert.equal(out.values.recorded_time, '09:05');
     assert.equal(out.values.bp_sys, 138);
+    assert.equal(calls, 2);
     assert.equal(out.values.rr, null);
+    assert.equal(out.values.pr, null);
     assert.equal(out.values.tmp_mmhg, null);
+    assert.equal(out.values.conductivity_ms_cm, 14);
     assert.deepEqual(out.missing, ['RR']);
-    assert.match(out.warnings[0], /^TMP/);
+    assert.match(out.warnings[0], /^PR อ่านได้ไม่ตรงกัน \(76 \/ 78\)/);
+    assert.match(out.warnings[1], /^TMP/);
 
     // การอ่านภาพไม่สร้างแถว ต้องกดบันทึกเองผ่าน API เดิมซึ่งมี audit log
     const detail = await (await fetch(`${base}/sessions/${session.id}`)).json();
@@ -57,4 +65,16 @@ test('อ่านภาพหน้าจอเครื่อง: ตรวจ
       await db.query('DELETE FROM patients WHERE id = $1', [patient.id]);
     });
   }
+});
+
+test('รวมผลอ่าน: ค่าต้องตรงกันทุกครั้งและสมเหตุผลจึงจะเติม', () => {
+  const a = { recorded_time: '10:42', bp_sys: 80, bp_dia: 120, pr: '80', rr: null, bfr_ml_min: 300, pv_mmhg: -20, tmp_mmhg: 80, conductivity_ms_cm: 14.1, notes: 'จอสะท้อนแสง' };
+  const out = reconcileReads([a, { ...a, recorded_time: '10:43', notes: 'จอสะท้อนแสง' }]);
+  assert.equal(out.values.recorded_time, null);
+  assert.equal(out.values.bp_sys, null); // sys ต่ำกว่า dia ไม่สมเหตุผล
+  assert.equal(out.values.pr, 80);
+  assert.equal(out.values.pv_mmhg, -20);
+  assert.equal(out.notes, 'จอสะท้อนแสง');
+  assert.ok(out.warnings.some((w) => w.startsWith('Time อ่านได้ไม่ตรงกัน')));
+  assert.ok(out.warnings.some((w) => w.startsWith('BP 80/120')));
 });
