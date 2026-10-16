@@ -20,6 +20,7 @@
 
   <nav class="views" aria-label="เมนู">
     <button type="button" class="view-tab on" data-view="sessions" aria-current="page">การฟอกเลือด</button>
+    <button type="button" class="view-tab" data-view="schedule">เตรียมผู้ป่วย</button>
     <button type="button" class="view-tab" data-view="patients">ผู้ป่วยทั้งหมด</button>
   </nav>
 
@@ -68,6 +69,84 @@
         <thead><tr><th>เวลา</th><th>การกระทำ</th><th>ส่วน</th><th>ผู้แก้ไข</th><th>ฟิลด์ที่เปลี่ยน</th><th>เหตุผล</th></tr></thead>
         <tbody id="audit"></tbody>
       </table>
+    </section>
+  </main>
+
+  <main id="view-schedule" hidden>
+    <section class="panel">
+      <div class="toolbar">
+        <h2>ตารางฟอกล่วงหน้า</h2>
+        <div class="seg" role="group" aria-label="มุมมอง">
+          <button type="button" class="ghost" data-mode="day">วัน</button>
+          <button type="button" class="ghost" data-mode="week">สัปดาห์</button>
+          <button type="button" class="ghost" data-mode="month">เดือน</button>
+        </div>
+        <span class="date-nav">
+          <button type="button" class="ghost" id="s-prev" aria-label="ก่อนหน้า">‹</button>
+          <button type="button" class="ghost" id="s-today">วันนี้</button>
+          <button type="button" class="ghost" id="s-next" aria-label="ถัดไป">›</button>
+        </span>
+        <b id="s-range"></b>
+        <button type="button" id="s-add">นัดผู้ป่วย</button>
+        <button type="button" class="ghost" id="s-settings-toggle">ตั้งค่ารอบ</button>
+      </div>
+
+      <div class="subpanel" id="s-settings" hidden>
+        <h3>ตั้งค่ารอบฟอก</h3>
+        <div class="shift-settings" id="s-shift-rows"></div>
+        <div class="actions">
+          <button type="button" id="s-settings-save">บันทึกการตั้งค่า</button>
+          <span class="msg" id="s-settings-msg"></span>
+        </div>
+      </div>
+
+      <form class="subpanel" id="s-form" hidden>
+        <h3>นัดผู้ป่วยฟอกเลือด</h3>
+        <div class="s-form-grid">
+          <label class="field wide"><span>ผู้ป่วย (พิมพ์ HN หรือชื่อเพื่อค้นหา)</span>
+            <input id="s-patient-q" type="search" autocomplete="off" placeholder="เช่น MOCK-00012 หรือ สมชาย">
+            <div class="picker" id="s-patient-results"></div>
+          </label>
+          <div class="field wide" id="s-patient-chosen"></div>
+          <label class="field"><span>วันที่เริ่ม</span><input id="s-date" type="date" required></label>
+          <label class="field"><span>รอบ</span><select id="s-shift"></select></label>
+          <label class="field"><span>เตียง (ว่างไว้ให้ระบบเลือก)</span><input id="s-bed" type="number" min="1" max="30"></label>
+          <label class="field"><span>นัดซ้ำ</span>
+            <select id="s-repeat"><option value="none">ไม่ซ้ำ</option><option value="weekly">ทุกสัปดาห์ ตามวันที่เลือก</option></select></label>
+          <div class="field wide" id="s-repeat-box" hidden>
+            <span>วันในสัปดาห์</span>
+            <div class="checks weekdays" id="s-weekdays"></div>
+            <label class="field"><span>นัดถึงวันที่</span><input id="s-until" type="date"></label>
+          </div>
+          <label class="field wide"><span>หมายเหตุ</span><input id="s-note"></label>
+        </div>
+        <div class="actions">
+          <button type="submit" id="s-save">บันทึกนัด</button>
+          <button type="button" class="ghost" id="s-cancel">ยกเลิก</button>
+          <span class="msg" id="s-msg"></span>
+        </div>
+        <ul class="conflicts" id="s-conflicts"></ul>
+      </form>
+
+      <div id="s-board"></div>
+    </section>
+
+    <section class="panel" id="pd" hidden>
+      <div class="toolbar">
+        <h2 id="pd-title">ข้อมูลผู้ป่วย</h2>
+        <button type="button" class="ghost" id="pd-open">เปิดในหน้าผู้ป่วยทั้งหมด</button>
+        <button type="button" class="ghost" id="pd-close">ปิด</button>
+      </div>
+      <div class="pd-head">
+        <div class="photo" id="pd-photo"></div>
+        <dl class="pd-facts" id="pd-facts"></dl>
+      </div>
+      <div class="pd-entry" id="pd-entry"></div>
+      <div class="pd-cols">
+        <div><h3>นัดฟอกที่จะถึง</h3><ul class="pd-list" id="pd-upcoming"></ul></div>
+        <div><h3>การฟอกล่าสุด</h3><ul class="pd-list" id="pd-recent"></ul></div>
+        <div><h3>ไฟล์แนบ</h3><ul class="pd-list" id="pd-files"></ul></div>
+      </div>
     </section>
   </main>
 
@@ -140,5 +219,6 @@
   </main>
   <script type="module" src="app.js"></script>
   <script type="module" src="patients.js"></script>
+  <script type="module" src="schedule.js"></script>
 </body>
 </html>

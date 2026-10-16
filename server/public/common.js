@@ -27,7 +27,7 @@ export async function api(path, options = {}, reasonId = 'reason') {
   const res = await fetch('/api' + path, { ...options, headers });
   if (res.status === 204) return null;
   const body = await res.json();
-  if (!res.ok) throw new Error(body.error || res.statusText);
+  if (!res.ok) throw Object.assign(new Error(body.error || res.statusText), { status: res.status, body });
   return body;
 }
 

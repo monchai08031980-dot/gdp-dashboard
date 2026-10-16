@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import patients from './routes/patients.js';
 import sessions from './routes/sessions.js';
 import audit from './routes/audit.js';
+import { schedule, shifts } from './routes/schedule.js';
 
 export const app = express();
 app.use(express.json());
@@ -21,6 +22,8 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
 app.use('/api/patients', patients);
 app.use('/api/sessions', sessions);
 app.use('/api/audit', audit);
+app.use('/api/shifts', shifts);
+app.use('/api/schedule', schedule);
 
 // Express 5 ส่ง error จาก async handler มาที่นี่เอง
 app.use((err, _req, res, _next) => {

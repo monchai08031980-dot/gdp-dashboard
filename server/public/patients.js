@@ -235,4 +235,11 @@ document.querySelector('.views').addEventListener('click', (e) => {
     $('view-' + t.dataset.view).hidden = !on;
   }
   if (tab.dataset.view === 'patients') loadPatients();
+  document.dispatchEvent(new CustomEvent('view-change', { detail: tab.dataset.view }));
+});
+
+// หน้าอื่นขอเปิดข้อมูลผู้ป่วยเต็มรูปแบบ
+document.addEventListener('open-patient', (e) => {
+  document.querySelector('.view-tab[data-view="patients"]').click();
+  openPatient(e.detail);
 });
