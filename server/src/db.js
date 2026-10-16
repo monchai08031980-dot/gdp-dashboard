@@ -9,14 +9,19 @@ export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL || 'postgres://hemo:hemo@localhost:5432/hemo_sync',
 });
 
+export const ROLES = { NURSE: 'พยาบาล', NURSE_AIDE: 'ผู้ช่วยพยาบาล' };
+
 // ทุกการเขียนข้อมูลต้องผ่านฟังก์ชันนี้ เพื่อให้ trigger รู้ว่าใครแก้ (audit log)
-export async function withAudit(user, reason, fn) {
-  if (!user) throw Object.assign(new Error('ต้องระบุผู้บันทึก'), { status: 401 });
+// actor คือ { name, role } จากหน้าจอ หรือชื่อเปล่า ๆ สำหรับสคริปต์ระบบ เช่น seed
+export async function withAudit(actor, reason, fn) {
+  const { name, role } = typeof actor === 'string' ? { name: actor, role: null } : actor || {};
+  if (!name) throw Object.assign(new Error('ต้องระบุผู้บันทึก'), { status: 401 });
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query("SELECT set_config('app.user_name', $1, true), set_config('app.reason', $2, true)", [
-      user,
+    await client.query("SELECT set_config('app.user_name', $1, true), set_config('app.user_role', $2, true), set_config('app.reason', $3, true)", [
+      name,
+      role || '',
       reason || '',
     ]);
     const result = await fn(client);

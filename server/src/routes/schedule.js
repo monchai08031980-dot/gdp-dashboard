@@ -23,7 +23,7 @@ shifts.get('/', async (_req, res) => {
 // body: [{ shift, active, beds, start_time }] คืนเฉพาะรอบที่เปลี่ยน
 shifts.put('/', async (req, res) => {
   if (!Array.isArray(req.body)) return res.status(400).json({ error: 'ข้อมูลไม่ถูกต้อง' });
-  const rows = await withAudit(req.user, req.reason, async (db) => {
+  const rows = await withAudit(req.actor, req.reason, async (db) => {
     const out = [];
     for (const s of req.body) {
       const { rows: r } = await db.query(
@@ -108,7 +108,7 @@ schedule.post('/', async (req, res) => {
   if (dates.length > 400) return res.status(400).json({ error: 'นัดได้ครั้งละไม่เกิน 400 วัน' });
 
   const conflicts = [];
-  const created = await withAudit(req.user, req.reason, async (db) => {
+  const created = await withAudit(req.actor, req.reason, async (db) => {
     const { rows: p } = await db.query('SELECT id, hn, first_name, last_name FROM patients WHERE id = $1 AND active', [patientId]);
     if (!p[0]) throw Object.assign(new Error('ไม่พบผู้ป่วย'), { status: 404 });
     const rows = [];
@@ -133,7 +133,7 @@ schedule.patch('/:id', async (req, res) => {
   if (Object.hasOwn(req.body || {}, 'bed_no')) data.bed_no = req.body.bed_no;
   if (Object.hasOwn(req.body || {}, 'note')) data.note = req.body.note || null;
   if (!Object.keys(data).length) return res.status(400).json({ error: 'ไม่มีข้อมูลที่จะแก้ไข' });
-  const row = await withAudit(req.user, req.reason, async (db) => {
+  const row = await withAudit(req.actor, req.reason, async (db) => {
     const { rows } = await db.query(
       `UPDATE schedule_entries SET ${Object.keys(data).map((k, i) => `${k} = $${i + 2}`).join(', ')}
        WHERE id = $1 AND status = 'PLANNED' RETURNING *`,
@@ -147,7 +147,7 @@ schedule.patch('/:id', async (req, res) => {
 
 // DELETE /api/schedule/:id  ยกเลิกนัด (เก็บประวัติไว้)
 schedule.delete('/:id', async (req, res) => {
-  const row = await withAudit(req.user, req.reason, async (db) =>
+  const row = await withAudit(req.actor, req.reason, async (db) =>
     (await db.query("UPDATE schedule_entries SET status = 'CANCELLED' WHERE id = $1 AND status = 'PLANNED' RETURNING id", [req.params.id])).rows[0]);
   if (!row) return res.status(404).json({ error: 'ไม่พบนัด' });
   res.status(204).end();

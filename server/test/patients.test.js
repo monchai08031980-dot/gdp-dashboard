@@ -8,7 +8,7 @@ const server = app.listen(0);
 const base = `http://localhost:${server.address().port}/api`;
 after(async () => { server.close(); await pool.end(); });
 
-const headers = (extra = {}) => ({ 'X-User-Name': encodeURIComponent('test-nurse'), ...extra });
+const headers = (extra = {}) => ({ 'X-User-Name': encodeURIComponent('test-nurse'), 'X-User-Role': 'NURSE', ...extra });
 const json = (method, body) => ({ method, headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) });
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0xff, 0xd9]);
 const PDF = Buffer.from('%PDF-1.4\n%mock\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');

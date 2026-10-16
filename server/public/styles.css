@@ -29,7 +29,8 @@ th { color: var(--muted); font-weight: 600; font-size: 13px; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover { background: var(--accent-soft); }
 input, select, textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--text); width: 100%; }
-.toolbar input, .user input { width: auto; }
+.toolbar input, .user input, .user select { width: auto; }
+.user { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 button { font: inherit; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
 button.ghost { background: #fff; color: var(--accent); }
 fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 12px; padding: 10px 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }

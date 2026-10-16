@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
     where.push(`(record_id::text = $${p} OR new_data->>'session_id' = $${p} OR old_data->>'session_id' = $${p})`);
   }
   const { rows } = await pool.query(
-    `SELECT id, table_name, record_id, action, changed_by, reason, changed_fields, old_data, new_data, changed_at
+    `SELECT id, table_name, record_id, action, changed_by, changed_by_role, reason, changed_fields, old_data, new_data, changed_at
      FROM audit_log ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
      ORDER BY changed_at DESC, id DESC LIMIT 200`,
     params,

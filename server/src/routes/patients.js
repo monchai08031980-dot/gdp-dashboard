@@ -52,7 +52,7 @@ async function checkRegularShift(db, data, current) {
 
 router.post('/', async (req, res) => {
   const data = pick(req.body, COLUMNS);
-  const row = await withAudit(req.user, req.reason, async (db) => {
+  const row = await withAudit(req.actor, req.reason, async (db) => {
     await checkRegularShift(db, data, null);
     return (await db.query(insertSql('patients', data))).rows[0];
   });
@@ -62,7 +62,7 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   const data = pick(req.body, COLUMNS);
   if (!Object.keys(data).length) return res.status(400).json({ error: 'ไม่มีข้อมูลที่จะแก้ไข' });
-  const row = await withAudit(req.user, req.reason, async (db) => {
+  const row = await withAudit(req.actor, req.reason, async (db) => {
     const { rows: cur } = await db.query('SELECT regular_shift FROM patients WHERE id = $1', [req.params.id]);
     if (!cur[0]) return null;
     await checkRegularShift(db, data, cur[0].regular_shift);
@@ -74,7 +74,7 @@ router.patch('/:id', async (req, res) => {
 
 // ลบผู้ป่วยออกจากรายชื่อ: ปิดสถานะไว้ ไม่ลบเวชระเบียนและประวัติการฟอก
 router.delete('/:id', async (req, res) => {
-  const row = await withAudit(req.user, req.reason, async (db) =>
+  const row = await withAudit(req.actor, req.reason, async (db) =>
     (await db.query('UPDATE patients SET active = false WHERE id = $1 AND active RETURNING id', [req.params.id])).rows[0]);
   if (!row) return res.status(404).json({ error: 'ไม่พบผู้ป่วย' });
   res.status(204).end();
@@ -109,7 +109,7 @@ router.post(
     if (kind === 'PHOTO' && mime !== 'image/jpeg') return res.status(415).json({ error: 'รูปผู้ป่วยต้องเป็นไฟล์ .jpg' });
     const fileName = (req.get('X-File-Name') ? decodeURIComponent(req.get('X-File-Name')) : 'file').slice(0, 200);
 
-    const row = await withAudit(req.user, req.reason, async (db) => {
+    const row = await withAudit(req.actor, req.reason, async (db) => {
       const { rows: patient } = await db.query('SELECT photo_file_id FROM patients WHERE id = $1 AND active FOR UPDATE', [req.params.id]);
       if (!patient[0]) return null;
       const { rows } = await db.query(
@@ -147,7 +147,7 @@ router.get('/:id/files/:fileId', async (req, res) => {
 });
 
 router.delete('/:id/files/:fileId', async (req, res) => {
-  const row = await withAudit(req.user, req.reason, async (db) => {
+  const row = await withAudit(req.actor, req.reason, async (db) => {
     const { rows } = await db.query(
       'UPDATE patient_files SET deleted_at = now() WHERE id = $1 AND patient_id = $2 AND deleted_at IS NULL RETURNING id',
       [req.params.fileId, req.params.id],

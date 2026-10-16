@@ -1,7 +1,7 @@
 // หน้าผู้ป่วยทั้งหมด: รายชื่อ, เพิ่ม ลบ แก้ไขผู้ป่วย, รูปผู้ป่วย และไฟล์แนบ (.jpg, .pdf)
 import { PATIENT_FIELDS, PATIENT_INFO_FIELDS, PATIENT_SHIFT_FIELDS, CHECKLISTS } from './form519.js';
 import {
-  $, api, apiList, apiUpload, blobUrl, esc, fmtTime, age, readField, fieldValue, renderField, needUser, ACTION, TABLE,
+  $, api, apiList, apiUpload, blobUrl, esc, fmtTime, age, readField, fieldValue, renderField, needUser, byWho, ACTION, TABLE,
 } from './common.js';
 
 const SEX = { M: 'ชาย', F: 'หญิง' };
@@ -139,7 +139,7 @@ async function loadAudit() {
   const rows = await api(`/audit?patient_id=${patient.id}`);
   $('p-audit').innerHTML = rows.map((a) => `
     <tr><td>${fmtTime(a.changed_at)}</td><td>${ACTION[a.action]}</td><td>${TABLE[a.table_name] || a.table_name}</td>
-    <td>${esc(a.changed_by)}</td><td>${esc((a.changed_fields || []).join(', '))}</td><td>${esc(a.reason)}</td></tr>`).join('');
+    <td>${esc(byWho(a))}</td><td>${esc((a.changed_fields || []).join(', '))}</td><td>${esc(a.reason)}</td></tr>`).join('');
 }
 
 async function act(action, done = 'บันทึกแล้ว') {

@@ -10,7 +10,7 @@ after(async () => { server.close(); await pool.end(); });
 const call = async (path, method = 'GET', body) => {
   const res = await fetch(base + path, {
     method,
-    headers: { 'Content-Type': 'application/json', 'X-User-Name': encodeURIComponent('test-nurse') },
+    headers: { 'Content-Type': 'application/json', 'X-User-Name': encodeURIComponent('test-nurse'), 'X-User-Role': 'NURSE' },
     body: body && JSON.stringify(body),
   });
   return { status: res.status, body: res.status === 204 ? null : await res.json() };
@@ -82,7 +82,7 @@ test('รอบที่ปิดหรือเต็มจองไม่ไ�
 
 test('การตั้งค่ารอบแสดงจำนวนผู้ป่วยประจำแยกวัน และกรองรายชื่อตามรอบได้', async () => {
   const hn = `TEST-SC-${Date.now()}`;
-  const res = await fetch(`${base}/patients`, { method: 'POST', headers: { 'X-User-Name': 'test-nurse', 'Content-Type': 'application/json' },
+  const res = await fetch(`${base}/patients`, { method: 'POST', headers: { 'X-User-Name': 'test-nurse', 'X-User-Role': 'NURSE', 'Content-Type': 'application/json' },
     body: JSON.stringify({ hn, first_name: 'สรุป', last_name: 'รอบ', regular_shift: 1, regular_days: ['MON', 'FRI'] }) });
   assert.equal(res.status, 201);
   const shifts = await (await fetch(`${base}/shifts`)).json();

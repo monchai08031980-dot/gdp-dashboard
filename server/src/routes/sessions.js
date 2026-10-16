@@ -47,14 +47,14 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const row = await withAudit(req.user, req.reason, async (db) => (await db.query(insertSql('dialysis_sessions', pick(req.body, SESSION_COLUMNS)))).rows[0]);
+  const row = await withAudit(req.actor, req.reason, async (db) => (await db.query(insertSql('dialysis_sessions', pick(req.body, SESSION_COLUMNS)))).rows[0]);
   res.status(201).json(row);
 });
 
 router.patch('/:id', async (req, res) => {
   const data = pick(req.body, SESSION_COLUMNS);
   if (!Object.keys(data).length) return res.status(400).json({ error: 'ไม่มีข้อมูลที่จะแก้ไข' });
-  const row = await withAudit(req.user, req.reason, async (db) => (await db.query(updateSql('dialysis_sessions', req.params.id, data))).rows[0]);
+  const row = await withAudit(req.actor, req.reason, async (db) => (await db.query(updateSql('dialysis_sessions', req.params.id, data))).rows[0]);
   if (!row) return res.status(404).json({ error: 'ไม่พบรอบการฟอก' });
   res.json(row);
 });
@@ -66,14 +66,14 @@ for (const [path, table, columns] of [
 ]) {
   router.post(`/:id/${path}`, async (req, res) => {
     const data = { ...pick(req.body, columns), session_id: req.params.id };
-    const row = await withAudit(req.user, req.reason, async (db) => (await db.query(insertSql(table, data))).rows[0]);
+    const row = await withAudit(req.actor, req.reason, async (db) => (await db.query(insertSql(table, data))).rows[0]);
     res.status(201).json(row);
   });
 
   router.patch(`/:id/${path}/:rowId`, async (req, res) => {
     const data = pick(req.body, columns);
     if (!Object.keys(data).length) return res.status(400).json({ error: 'ไม่มีข้อมูลที่จะแก้ไข' });
-    const row = await withAudit(req.user, req.reason, async (db) => {
+    const row = await withAudit(req.actor, req.reason, async (db) => {
       const sql = updateSql(table, req.params.rowId, data);
       sql.text = sql.text.replace(' RETURNING *', ` AND session_id = $${sql.values.length + 1} RETURNING *`);
       sql.values.push(req.params.id);
@@ -84,7 +84,7 @@ for (const [path, table, columns] of [
   });
 
   router.delete(`/:id/${path}/:rowId`, async (req, res) => {
-    const row = await withAudit(req.user, req.reason, async (db) =>
+    const row = await withAudit(req.actor, req.reason, async (db) =>
       (await db.query(`DELETE FROM ${table} WHERE id = $1 AND session_id = $2 RETURNING id`, [req.params.rowId, req.params.id])).rows[0]);
     if (!row) return res.status(404).json({ error: 'ไม่พบรายการ' });
     res.status(204).end();

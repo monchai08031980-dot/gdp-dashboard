@@ -8,8 +8,17 @@ export const TABLE = {
   patients: 'ข้อมูลผู้ป่วย', patient_files: 'ไฟล์',
 };
 
-try { $('user').value = localStorage.getItem('hemo.user') || $('user').value; } catch {}
+export const ROLE = { NURSE: 'พยาบาล', NURSE_AIDE: 'ผู้ช่วยพยาบาล' };
+// ผู้บันทึกบนเครื่องนี้ (ชื่อ + ตำแหน่ง) จำไว้ให้ครั้งถัดไป
+try {
+  $('user').value = localStorage.getItem('hemo.user') || $('user').value;
+  $('user-role').value = localStorage.getItem('hemo.user-role') || $('user-role').value;
+} catch {}
 $('user').addEventListener('change', () => { try { localStorage.setItem('hemo.user', $('user').value); } catch {} });
+$('user-role').addEventListener('change', () => { try { localStorage.setItem('hemo.user-role', $('user-role').value); } catch {} });
+const userHeaders = () => ({ 'X-User-Name': encodeURIComponent($('user').value.trim()), 'X-User-Role': $('user-role').value });
+// ชื่อผู้บันทึกพร้อมตำแหน่ง สำหรับแสดงใน audit log
+export const byWho = (a) => `${a.changed_by}${ROLE[a.changed_by_role] ? ` (${ROLE[a.changed_by_role]})` : ''}`;
 
 // รายการแบบแบ่งหน้า: คืนแถวพร้อมจำนวนทั้งหมดจาก header X-Total-Count
 export async function apiList(path) {
@@ -21,7 +30,7 @@ export async function apiList(path) {
 
 // เหตุผลการแก้ไขอ่านจากช่อง reasonId ของหน้าที่กำลังใช้
 export async function api(path, options = {}, reasonId = 'reason') {
-  const headers = { 'Content-Type': 'application/json', 'X-User-Name': encodeURIComponent($('user').value.trim()) };
+  const headers = { 'Content-Type': 'application/json', ...userHeaders() };
   const reason = ($(reasonId)?.value || '').trim();
   if (reason) headers['X-Edit-Reason'] = encodeURIComponent(reason);
   const res = await fetch('/api' + path, { ...options, headers });
@@ -81,9 +90,11 @@ export function renderField(field, record) {
 }
 
 export function needUser(msgId) {
-  if ($('user').value.trim()) return false;
-  $(msgId).textContent = 'กรุณาระบุชื่อผู้บันทึกก่อน';
-  $('user').focus();
+  const name = $('user').value.trim();
+  const role = $('user-role').value;
+  if (name && role) return false;
+  $(msgId).textContent = !role && !name ? 'กรุณาเลือกตำแหน่งและใส่ชื่อผู้บันทึกก่อน' : !role ? 'กรุณาเลือกตำแหน่งผู้บันทึก (พยาบาล หรือ ผู้ช่วยพยาบาล) ก่อน' : 'กรุณาระบุชื่อผู้บันทึกก่อน';
+  (role ? $('user') : $('user-role')).focus();
   return true;
 }
 
@@ -92,7 +103,7 @@ export function needUser(msgId) {
 export async function apiUpload(path, file, reasonId) {
   const headers = {
     'Content-Type': file.type || 'application/octet-stream',
-    'X-User-Name': encodeURIComponent($('user').value.trim()),
+    ...userHeaders(),
     'X-File-Name': encodeURIComponent(file.name),
   };
   const reason = ($(reasonId)?.value || '').trim();

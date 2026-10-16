@@ -1,7 +1,7 @@
 // หน้าบันทึกการฟอกเลือด: รายการรอบฟอก, แบบฟอร์ม 519, บันทึกระหว่างฟอก, ยา และประวัติการแก้ไข
 import { SECTIONS, VITAL_FIELDS, MEDICATION_FIELDS } from './form519.js';
 import {
-  $, api, apiList, esc, fmtTime, fmtDate, age, readField, fieldValue, renderInput, renderField, needUser, ACTION, TABLE,
+  $, api, apiList, esc, fmtTime, fmtDate, age, readField, fieldValue, renderInput, renderField, needUser, byWho, ACTION, TABLE,
 } from './common.js';
 
 const STATUS = Object.fromEntries(SECTIONS[0].fields.find((f) => f.name === 'status').options);
@@ -65,7 +65,7 @@ async function loadAudit() {
   const rows = await api(`/audit?session_id=${current.id}`);
   $('audit').innerHTML = rows.map((a) => `
     <tr><td>${fmtTime(a.changed_at)}</td><td>${ACTION[a.action]}</td><td>${TABLE[a.table_name] || a.table_name}</td>
-    <td>${esc(a.changed_by)}</td><td>${esc((a.changed_fields || []).join(', '))}</td><td>${esc(a.reason)}</td></tr>`).join('');
+    <td>${esc(byWho(a))}</td><td>${esc((a.changed_fields || []).join(', '))}</td><td>${esc(a.reason)}</td></tr>`).join('');
 }
 
 async function run(action) {

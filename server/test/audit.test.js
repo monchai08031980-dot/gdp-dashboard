@@ -8,12 +8,13 @@ const server = app.listen(0);
 const base = `http://localhost:${server.address().port}/api`;
 after(async () => { server.close(); await pool.end(); });
 
-const call = (path, method = 'GET', body, user = 'test-nurse', reason) =>
+const call = (path, method = 'GET', body, user = 'test-nurse', reason, role = 'NURSE') =>
   fetch(base + path, {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...(user && { 'X-User-Name': encodeURIComponent(user) }),
+      ...(role && { 'X-User-Role': role }),
       ...(reason && { 'X-Edit-Reason': encodeURIComponent(reason) }),
     },
     body: body && JSON.stringify(body),
@@ -93,4 +94,17 @@ test('รายการรอบฟอกค้นหาด้วย HN หร�
     await db.query('DELETE FROM dialysis_sessions WHERE id = ANY($1)', [ids]);
     await db.query('DELETE FROM patients WHERE id = $1', [patient.id]);
   });
+});
+
+test('ต้องเลือกตำแหน่งผู้บันทึก และ audit log เก็บตำแหน่งไว้', async () => {
+  const hn = `TEST-ROLE-${Date.now()}`;
+  const noRole = await call('/patients', 'POST', { hn, first_name: 'ตำแหน่ง', last_name: 'ผู้บันทึก' }, 'test-aide', null, null);
+  assert.equal(noRole.status, 400);
+  assert.equal((await call('/patients', 'POST', { hn, first_name: 'ตำแหน่ง', last_name: 'ผู้บันทึก' }, 'test-aide', null, 'DOCTOR')).status, 400);
+  const ok = await call('/patients', 'POST', { hn, first_name: 'ตำแหน่ง', last_name: 'ผู้บันทึก' }, 'test-aide', null, 'NURSE_AIDE');
+  assert.equal(ok.status, 201);
+  const p = await ok.json();
+  const log = await (await call(`/audit?table=patients&record_id=${p.id}`)).json();
+  assert.equal(log[0].changed_by, 'test-aide');
+  assert.equal(log[0].changed_by_role, 'NURSE_AIDE');
 });

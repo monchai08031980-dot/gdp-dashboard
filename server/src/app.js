@@ -4,15 +4,22 @@ import patients from './routes/patients.js';
 import sessions from './routes/sessions.js';
 import audit from './routes/audit.js';
 import { schedule, shifts } from './routes/schedule.js';
+import { ROLES } from './db.js';
 
 export const app = express();
 app.use(express.json());
 app.use(express.static(fileURLToPath(new URL('../public/', import.meta.url))));
 
 // TODO: แทนที่ด้วยระบบล็อกอินจริง ตอนนี้รับชื่อผู้บันทึกจาก header ชั่วคราว
-app.use('/api', (req, _res, next) => {
+app.use('/api', (req, res, next) => {
   const encoded = req.get('X-User-Name');
   req.user = encoded ? decodeURIComponent(encoded) : null;
+  // ตำแหน่งผู้บันทึกจากหน้าจอ: พยาบาล หรือ ผู้ช่วยพยาบาล (บังคับเลือกก่อนแก้ข้อมูล)
+  const role = req.get('X-User-Role');
+  if (req.method !== 'GET' && req.user && !Object.hasOwn(ROLES, role || '')) {
+    return res.status(400).json({ error: 'กรุณาเลือกตำแหน่งผู้บันทึก (พยาบาล หรือ ผู้ช่วยพยาบาล)' });
+  }
+  req.actor = req.user ? { name: req.user, role } : null;
   const reason = req.get('X-Edit-Reason');
   req.reason = reason ? decodeURIComponent(reason) : null;
   next();

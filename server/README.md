@@ -51,7 +51,7 @@ npm test                        # ต้องมีฐานข้อมูล�
 | POST / PATCH / DELETE | `/api/sessions/:id/medications[/:rowId]` | EPO / ยาระหว่างฟอก |
 | GET | `/api/audit?session_id=` หรือ `?table=&record_id=` | ประวัติการแก้ไข |
 
-การเขียนทุกครั้งต้องส่ง header `X-User-Name` (และ `X-Edit-Reason` ถ้ามี) ค่าเป็น URL-encoded
+การเขียนทุกครั้งต้องส่ง header `X-User-Name` (URL-encoded) และ `X-User-Role` เป็น `NURSE` (พยาบาล) หรือ `NURSE_AIDE` (ผู้ช่วยพยาบาล) ส่วน `X-Edit-Reason` ส่งเมื่อมีเหตุผล ตำแหน่งถูกเก็บใน audit_log.changed_by_role
 นี่เป็นการระบุตัวตนชั่วคราวจนกว่าจะมีระบบล็อกอิน
 
 ## ยังไม่ได้ทำ
