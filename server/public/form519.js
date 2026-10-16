@@ -207,7 +207,7 @@ export const PATIENT_INFO_FIELDS = [
   { name: 'sex', label: 'เพศ', type: 'select', options: [['M', 'ชาย'], ['F', 'หญิง']] },
   { name: 'birth_date', label: 'วันเกิด', type: 'date' },
   { name: 'blood_group', label: 'กรุ๊ปเลือด', type: 'select', options: [['A', 'A'], ['B', 'B'], ['AB', 'AB'], ['O', 'O']] },
-  { name: 'payer', label: 'สิทธิการรักษา', type: 'select', options: [['บัตรทอง', 'บัตรทอง'], ['ประกันสังคม', 'ประกันสังคม'], ['ข้าราชการ', 'ข้าราชการ'], ['ชำระเอง', 'ชำระเอง']] },
+  { name: 'payer', label: 'สิทธิการรักษา', type: 'select', options: [['บัตรทอง', 'บัตรทอง'], ['ประกันสังคม', 'ประกันสังคม'], ['ข้าราชการ', 'ข้าราชการ'], ['รัฐวิสาหกิจ', 'รัฐวิสาหกิจ'], ['ชำระเงินเอง', 'ชำระเงินเอง']] },
   { name: 'diagnosis', label: 'สาเหตุไตวาย', type: 'text' },
   { name: 'dry_weight_kg', label: 'Dry weight (kg)', type: 'number' },
   { name: 'vascular_access', label: 'Vascular access', type: 'select', options: [['AVF', 'AVF'], ['AVG', 'AVG'], ['DLC', 'DLC'], ['PC', 'PC']] },
