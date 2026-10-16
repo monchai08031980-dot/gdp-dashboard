@@ -82,6 +82,7 @@ export function readField(form, field) {
   const value = form.elements[field.name].value;
   if (value === '') return null;
   if (field.type === 'bool') return value === 'true';
+  if (field.type === 'time') return normalizeHm(value) ?? value;
   if (field.type === 'number' || field.name === 'dialysate_flow_ml_min') return Number(value);
   return value;
 }
@@ -205,8 +206,38 @@ function enhanceDate(input) {
   });
 }
 
-const enhanceAll = (root) => root.querySelectorAll?.('input[type="date"]:not([data-dmy])').forEach(enhanceDate);
+// เวลาแสดงและกรอกแบบ 24 ชั่วโมง HH:MM ตามหน้าจอเครื่อง ไม่มี AM/PM (ช่องเวลาของเบราว์เซอร์แสดงตามภาษาเครื่อง)
+// รับ 9:05, 09.05, 0905, 905 แล้วจัดเป็น 09:05 คืน null ถ้าไม่ใช่เวลาจริง
+export const normalizeHm = (text) => {
+  const t = String(text ?? '').trim();
+  if (!t) return '';
+  const m = t.match(/^(\d{1,2})[:.](\d{2})$/) || t.match(/^(\d{1,2})(\d{2})$/);
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+  return `${pad2(Number(m[1]))}:${m[2]}`;
+};
+function enhanceTime(input) {
+  Object.assign(input, { type: 'text', inputMode: 'numeric', placeholder: 'HH:MM', maxLength: 5, autocomplete: 'off' });
+  input.classList.add('time-24');
+}
+document.addEventListener('focusout', (e) => {
+  const input = e.target;
+  if (!input.classList?.contains('time-24')) return;
+  const v = normalizeHm(input.value);
+  if (v === null) { input.setAttribute('aria-invalid', 'true'); input.title = 'กรอกเวลาแบบ 24 ชั่วโมง เช่น 14:30'; return; }
+  input.value = v;
+  input.removeAttribute('aria-invalid');
+  input.removeAttribute('title');
+});
+
+const enhanceAll = (root) => {
+  root.querySelectorAll?.('input[type="date"]:not([data-dmy])').forEach(enhanceDate);
+  root.querySelectorAll?.('input[type="time"]').forEach(enhanceTime);
+};
 enhanceAll(document);
 new MutationObserver((records) => {
-  for (const r of records) for (const n of r.addedNodes) if (n.nodeType === 1) { if (n.matches('input[type="date"]')) enhanceDate(n); else enhanceAll(n); }
+  for (const r of records) for (const n of r.addedNodes) if (n.nodeType === 1) {
+    if (n.matches('input[type="date"]')) enhanceDate(n);
+    else if (n.matches('input[type="time"]')) enhanceTime(n);
+    else enhanceAll(n);
+  }
 }).observe(document.body, { childList: true, subtree: true });

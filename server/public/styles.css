@@ -114,7 +114,7 @@ button.link { background: none; border: none; padding: 0; color: var(--accent); 
 .sc-inputs { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .sc-inputs label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .sc-inputs input[type=number] { width: 64px; }
-.sc-inputs input[type=time] { width: auto; }
+.sc-inputs input.time-24 { width: 5.5em; }
 .sc-line b { font-variant-numeric: tabular-nums; }
 .sc-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .sc-day { display: grid; justify-items: center; padding: 4px 0; border-radius: 6px; background: var(--accent-soft); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -192,7 +192,9 @@ button.link { background: none; border: none; padding: 0; color: var(--accent); 
 .cap-body > img { max-width: 480px; }
 .cap-scroll { overflow-x: auto; }
 #cap-review input { min-width: 64px; }
-#cap-review input[type=time] { min-width: 110px; }
+input.time-24 { font-variant-numeric: tabular-nums; }
+input.time-24[aria-invalid="true"] { border-color: #b91c1c; }
+#cap-review input.time-24 { min-width: 70px; }
 .cap-body img { width: 100%; border: 1px solid var(--line); border-radius: 6px; background: #000; }
 .cap-side { display: grid; gap: 10px; min-width: 0; }
 .cap-status { font-size: 13px; color: var(--muted); }

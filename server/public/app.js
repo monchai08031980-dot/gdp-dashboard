@@ -1,7 +1,7 @@
 // หน้าบันทึกการฟอกเลือด: รายการรอบฟอก, แบบฟอร์ม 519, บันทึกระหว่างฟอก, ยา และประวัติการแก้ไข
 import { SECTIONS, VITAL_FIELDS, MEDICATION_FIELDS } from './form519.js';
 import {
-  $, api, apiList, apiUpload, esc, fmtTime, fmtDate, age, readField, fieldValue, renderInput, renderField, needUser, byWho, ACTION, TABLE,
+  $, api, apiList, apiUpload, normalizeHm, esc, fmtTime, fmtDate, age, readField, fieldValue, renderInput, renderField, needUser, byWho, ACTION, TABLE,
 } from './common.js';
 
 const STATUS = Object.fromEntries(SECTIONS[0].fields.find((f) => f.name === 'status').options);
@@ -113,7 +113,7 @@ for (const [kind, fields] of [['vitals', VITAL_FIELDS], ['medications', MEDICATI
     const data = {};
     for (const f of fields) {
       const value = tr.querySelector(`[name="${f.name}"]`).value;
-      data[f.name] = value === '' ? null : f.type === 'number' ? Number(value) : value;
+      data[f.name] = value === '' ? null : f.type === 'number' ? Number(value) : f.type === 'time' ? (normalizeHm(value) ?? value) : value;
     }
     const base = `/sessions/${current.id}/${kind}`;
     if (btn.dataset.act === 'add') run(() => api(base, { method: 'POST', body: JSON.stringify(data) }));
@@ -280,7 +280,7 @@ $('cap-save').addEventListener('click', async () => {
   const data = {};
   for (const f of CAPTURE_FIELDS) {
     const value = $('cap-review').querySelector(`[name="${f.name}"]`).value.trim();
-    data[f.name] = value === '' ? null : f.type === 'number' ? Number(value) : value;
+    data[f.name] = value === '' ? null : f.type === 'number' ? Number(value) : f.type === 'time' ? (normalizeHm(value) ?? value) : value;
   }
   if (!data.recorded_time) { capMsg('กรุณาใส่เวลา'); return; }
   data.note = CAPTURE_NOTE;
