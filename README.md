@@ -1,19 +1,5 @@
-# :earth_americas: GDP dashboard template
+# Hemo Sync AI
 
-A simple Streamlit app showing the GDP of different countries in the world.
+ระบบบันทึกฟอกเลือด ศูนย์ไตเทียมหนองบัวลำภู (30 เตียง) ตามแบบฟอร์ม 519
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://gdp-dashboard-template.streamlit.app/)
-
-### How to run it on your own machine
-
-1. Install the requirements
-
-   ```
-   $ pip install -r requirements.txt
-   ```
-
-2. Run the app
-
-   ```
-   $ streamlit run streamlit_app.py
-   ```
+โค้ดทั้งหมดอยู่ในโฟลเดอร์ [`server/`](server/) (Node.js + PostgreSQL) ดูวิธีติดตั้งและรันได้ที่ [server/README.md](server/README.md)
