@@ -352,16 +352,16 @@ async function openPd(patientId, entry) {
   $('pd-entry').innerHTML = entry ? `<div class="chosen">
       <b>นัด ${esc(dayFull(entry.schedule_date, 'long'))}</b>
       <span>รอบ ${entry.shift}${entry.bed_no ? ` · เตียง ${entry.bed_no}` : ''}</span>${entry.note ? `<span>${esc(entry.note)}</span>` : ''}
-      <button type="button" class="add-mini" id="pd-assess">🩺 ซักประวัติเบื้องต้น</button>
       <button type="button" class="ghost danger add-mini" id="pd-cancel-entry">ยกเลิกนัดนี้</button><span class="msg" id="pd-msg"></span></div>` : '';
   $('pd-upcoming').innerHTML = upcoming.slice(0, 10).map((e) => `<li><span>${esc(dayFull(e.schedule_date))}</span><span>รอบ ${e.shift}${e.bed_no ? ` · เตียง ${e.bed_no}` : ''}</span></li>`).join('') || '<li>ไม่มีนัด</li>';
   $('pd-recent').innerHTML = recent.map((s) => `<li><span>${esc(fmtDate(s.session_date))}</span><span>${s.total_uf_ml != null ? `UF ${s.total_uf_ml} ml` : esc(s.status)}</span></li>`).join('') || '<li>ยังไม่เคยฟอก</li>';
   $('pd-files').innerHTML = files.filter((f) => f.kind === 'DOCUMENT').map((f) => `<li><span>${esc(f.file_name)}</span><span>${f.mime_type === 'application/pdf' ? 'PDF' : 'JPG'}</span></li>`).join('') || '<li>ไม่มีไฟล์</li>';
-  $('pd').scrollIntoView({ behavior: 'smooth' });
+  // เลือกผู้ป่วยจากนัดแล้ว ฟอร์มซักประวัติเปิดรอเลย พร้อมพิมพ์ Pre weight
+  if (entry) await openAssessment().catch((err) => { $('pd-msg').textContent = err.message; });
+  else $('pd').scrollIntoView({ behavior: 'smooth' });
 }
 
 $('pd').addEventListener('click', async (e) => {
-  if (e.target.id === 'pd-assess') { openAssessment().catch((err) => { $('pd-msg').textContent = err.message; }); return; }
   if (e.target.id !== 'pd-cancel-entry') return;
   if (needUser('pd-msg')) return;
   if (e.target.dataset.confirm !== 'yes') { e.target.dataset.confirm = 'yes'; e.target.textContent = 'ยืนยันยกเลิกนัด'; return; }
@@ -386,23 +386,45 @@ async function openAssessment() {
   $('pa-sheet').hidden = !a.session_id;
   $('pa-msg').textContent = '';
   $('pa-reason').value = '';
+  // ช่องน้ำหนักพิมพ์ตัวเลขจากคีย์บอร์ดได้เลย (ไม่มีปุ่มเพิ่ม-ลด) Enter ไปช่องถัดไป ช่องสุดท้ายกด Enter เพื่อบันทึก
+  for (const input of weightInputs()) {
+    Object.assign(input, { type: 'text', inputMode: 'decimal', autocomplete: 'off', spellcheck: false });
+    input.setAttribute('enterkeyhint', 'next');
+  }
+  weightInputs().at(-1).setAttribute('enterkeyhint', 'done');
   $('pa').hidden = false;
   $('pa').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('pa').elements.pre_weight_kg.focus({ preventScroll: true });
+  $('pa').elements.pre_weight_kg.select();
 }
+
+const weightInputs = () => [...$('pa').querySelectorAll('input')].filter((el) => ASSESSMENT_FIELDS.some((f) => f.type === 'number' && f.name === el.name));
+const toKg = (v) => (v.trim() === '' ? null : Number(v.trim().replace(',', '.')));
+
+$('pa').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.isComposing) return;
+  const list = weightInputs();
+  const i = list.indexOf(e.target);
+  if (i < 0) return;
+  e.preventDefault();
+  if (i < list.length - 1) { list[i + 1].focus(); list[i + 1].select(); } else $('pa').requestSubmit();
+});
 
 // Weight gain = Pre weight − Last BW (คำนวณให้เมื่อกรอกน้ำหนัก แก้เองได้)
 $('pa').addEventListener('input', (e) => {
   if (!['pre_weight_kg', 'last_bw_kg'].includes(e.target.name)) return;
   const f = $('pa');
-  const pre = parseFloat(f.elements.pre_weight_kg.value);
-  const last = parseFloat(f.elements.last_bw_kg.value);
+  const pre = toKg(f.elements.pre_weight_kg.value) ?? NaN;
+  const last = toKg(f.elements.last_bw_kg.value) ?? NaN;
   if (Number.isFinite(pre) && Number.isFinite(last)) f.elements.weight_gain_kg.value = (pre - last).toFixed(1);
 });
 
 $('pa').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (needUser('pa-msg')) return;
-  const data = Object.fromEntries(ASSESSMENT_FIELDS.map((f) => [f.name, readField($('pa'), f)]));
+  const data = Object.fromEntries(ASSESSMENT_FIELDS.map((f) => [f.name, f.type === 'number' ? toKg($('pa').elements[f.name].value) : readField($('pa'), f)]));
+  const bad = ASSESSMENT_FIELDS.find((f) => f.type === 'number' && Number.isNaN(data[f.name]));
+  if (bad) { $('pa-msg').textContent = `${bad.label} ต้องเป็นตัวเลข เช่น 62.5`; $('pa').elements[bad.name].focus(); return; }
   if (data.pre_weight_kg === null) { $('pa-msg').textContent = 'กรุณากรอก Pre weight'; $('pa').elements.pre_weight_kg.focus(); return; }
   $('pa-save').disabled = true;
   try {
@@ -420,7 +442,6 @@ $('pa').addEventListener('submit', async (e) => {
     $('pa-save').disabled = false;
   }
 });
-$('pa-close').addEventListener('click', () => { $('pa').hidden = true; });
 $('pa-sheet').addEventListener('click', () => document.dispatchEvent(new CustomEvent('open-session', { detail: state.pd.sessionId })));
 
 $('pd-close').addEventListener('click', () => { $('pd').hidden = true; });
