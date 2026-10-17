@@ -4,6 +4,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 
 import { SCREEN_FIELDS, SCREEN_PROMPT, SCREEN_READS, reconcileReads } from '../public/screenRead.js';
+import { SCALE_PROMPT, SCALE_READS, reconcileScale } from '../public/scaleRead.js';
 
 const nullable = (type) => ({ anyOf: [{ type }, { type: 'null' }] });
 const ROW = {
@@ -24,21 +25,34 @@ const SCHEMA = {
   additionalProperties: false,
 };
 
+// รูปตาชั่ง: ตัวเลขน้ำหนักตามที่เห็น หน่วย และค่านิ่งหรือยัง
+const SCALE_SCHEMA = {
+  type: 'object',
+  properties: {
+    weight_raw: nullable('string'),
+    unit: { anyOf: [{ type: 'string', enum: ['kg', 'lb'] }, { type: 'null' }] },
+    stable: nullable('boolean'),
+    notes: { type: 'string' },
+  },
+  required: ['weight_raw', 'unit', 'stable', 'notes'],
+  additionalProperties: false,
+};
+
 let client = null;
 
-async function claudeReader(image, mediaType) {
+async function claudeReader(image, mediaType, prompt = SCREEN_PROMPT, schema = SCHEMA) {
   client ??= new Anthropic();
   const response = await client.beta.messages.create({
     model: 'claude-opus-5-5',
     max_tokens: 8000,
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
-    output_config: { effort: 'high', format: { type: 'json_schema', schema: SCHEMA } },
+    output_config: { effort: 'high', format: { type: 'json_schema', schema } },
     messages: [{
       role: 'user',
       content: [
         { type: 'image', source: { type: 'base64', media_type: mediaType, data: image.toString('base64') } },
-        { type: 'text', text: SCREEN_PROMPT },
+        { type: 'text', text: prompt },
       ],
     }],
   });
@@ -55,22 +69,24 @@ const httpError = (status, message) => Object.assign(new Error(message), { statu
 
 // ทดสอบใส่ตัวอ่านจำลองแทนได้ (ใช้ข้อมูลจำลองเท่านั้น)
 let reader = null;
+let scaleReader = null;
 export function setScreenReader(fn) { reader = fn; }
+export function setScaleReader(fn) { scaleReader = fn; }
+const claudeOn = () => process.env.SCREEN_READER === 'claude';
 function activeReader() {
   if (reader) return reader;
-  if (process.env.SCREEN_READER === 'claude') return claudeReader;
-  return null;
+  return claudeOn() ? claudeReader : null;
+}
+function activeScaleReader() {
+  if (scaleReader) return scaleReader;
+  return claudeOn() ? (image, type) => claudeReader(image, type, SCALE_PROMPT, SCALE_SCHEMA) : null;
 }
 export const screenReaderEnabled = () => Boolean(activeReader());
+export const scaleReaderEnabled = () => Boolean(activeScaleReader());
 
-// อ่านภาพเดียวกัน SCREEN_READS ครั้งแยกกัน แล้วเติมเฉพาะค่าที่ทุกครั้งตรงกัน (ดู public/screenRead.js)
-// คืน { values, missing, warnings, notes } ค่าที่ไม่แน่ใจเป็น null เสมอ
-export async function readMachineScreen(image, mediaType) {
-  const read = activeReader();
-  if (!read) throw httpError(501, 'ยังไม่ได้เปิดใช้การอ่านภาพหน้าจอเครื่อง (ตั้ง SCREEN_READER=claude และ ANTHROPIC_API_KEY)');
-  let reads;
+async function readTimes(read, times, image, mediaType) {
   try {
-    reads = await Promise.all(Array.from({ length: SCREEN_READS }, () => read(image, mediaType)));
+    return await Promise.all(Array.from({ length: times }, () => read(image, mediaType)));
   } catch (err) {
     if (err.status && !(err instanceof Anthropic.APIError)) throw err;
     if (err instanceof Anthropic.AuthenticationError) throw httpError(503, 'คีย์ของระบบอ่านภาพไม่ถูกต้อง');
@@ -78,7 +94,21 @@ export async function readMachineScreen(image, mediaType) {
     if (err instanceof Anthropic.APIError) throw httpError(502, 'ระบบอ่านภาพขัดข้อง กรุณาลองใหม่หรือกรอกค่าเอง');
     throw err;
   }
-  return reconcileReads(reads);
+}
+
+// อ่านน้ำหนักจากรูปตาชั่ง SCALE_READS ครั้ง เติมเฉพาะเมื่อทุกครั้งตรงกัน (ดู public/scaleRead.js)
+export async function readScale(image, mediaType) {
+  const read = activeScaleReader();
+  if (!read) throw httpError(501, 'ยังไม่ได้เปิดใช้การอ่านรูปตาชั่ง (ตั้ง SCREEN_READER=claude และ ANTHROPIC_API_KEY)');
+  return reconcileScale(await readTimes(read, SCALE_READS, image, mediaType));
+}
+
+// อ่านภาพเดียวกัน SCREEN_READS ครั้งแยกกัน แล้วเติมเฉพาะค่าที่ทุกครั้งตรงกัน (ดู public/screenRead.js)
+// คืน { values, missing, warnings, notes } ค่าที่ไม่แน่ใจเป็น null เสมอ
+export async function readMachineScreen(image, mediaType) {
+  const read = activeReader();
+  if (!read) throw httpError(501, 'ยังไม่ได้เปิดใช้การอ่านภาพหน้าจอเครื่อง (ตั้ง SCREEN_READER=claude และ ANTHROPIC_API_KEY)');
+  return reconcileReads(await readTimes(read, SCREEN_READS, image, mediaType));
 }
 
 // ตรวจไฟล์จากเนื้อไฟล์จริง ไม่เชื่อ Content-Type

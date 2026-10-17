@@ -1,6 +1,6 @@
 // หน้าเตรียมผู้ป่วย: ตารางนัดฟอกล่วงหน้าแบบวัน สัปดาห์ เดือน และดูข้อมูลผู้ป่วย
 import { PATIENT_FIELDS, CHECKLISTS, ASSESSMENT_SECTIONS, ASSESSMENT_FIELDS } from './form519.js';
-import { $, api, apiList, blobUrl, esc, fmtDate, fmtTime, age, needUser, renderField, readField } from './common.js';
+import { $, api, apiList, apiUpload, blobUrl, esc, fmtDate, fmtTime, age, needUser, renderField, readField } from './common.js';
 
 const NO_REASON = 's-no-reason'; // หน้านี้ไม่มีช่องเหตุผล
 const WEEKDAYS = ['จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.', 'อา.']; // เริ่มวันจันทร์
@@ -468,6 +468,8 @@ async function openAssessment() {
     input.setAttribute('enterkeyhint', 'next');
   }
   weightInputs().at(-1).setAttribute('enterkeyhint', 'done');
+  scaleMsg(SCALE_HINT);
+  $('pa-scale').hidden = !(await scaleReaderOn());
   $('pa').hidden = false;
   $('pa').scrollIntoView({ behavior: 'smooth', block: 'start' });
   $('pa').elements.pre_weight_kg.focus({ preventScroll: true });
@@ -494,6 +496,54 @@ $('pa').addEventListener('input', (e) => {
   const last = toKg(f.elements.last_bw_kg.value) ?? NaN;
   if (Number.isFinite(pre) && Number.isFinite(last)) f.elements.weight_gain_kg.value = (pre - last).toFixed(1);
 });
+
+// ถ่ายรูปตาชั่ง: ระบบอ่านน้ำหนักสองรอบ เติม Pre weight เฉพาะเมื่อตรงกัน (ช่องสีฟ้า) พยาบาลตรวจกับตาชั่งก่อนกดบันทึก ภาพไม่ถูกเก็บ
+const SCALE_HINT = $('pa-scale-msg').textContent;
+let scaleReader = null;
+const scaleReaderOn = async () => (scaleReader ??= fetch('/api/health').then((r) => r.json()).then((h) => Boolean(h.scale_reader)).catch(() => false));
+const scaleMsg = (text, warn = false) => { $('pa-scale-msg').textContent = text; $('pa-scale-msg').classList.toggle('warn', warn); };
+
+async function scaleJpeg(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale) });
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+  return new File([blob], 'scale.jpg', { type: 'image/jpeg' });
+}
+
+$('pa-scale-btn').addEventListener('click', () => { if (!needUser('pa-msg')) $('pa-scale-file').click(); });
+$('pa-scale-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const input = $('pa').elements.pre_weight_kg;
+  $('pa-scale-btn').disabled = true;
+  scaleMsg('กำลังอ่านน้ำหนักจากรูป (อ่านสองรอบเพื่อตรวจซ้ำ)...');
+  try {
+    if (!file.type.startsWith('image/')) throw new Error('กรุณาเลือกไฟล์ภาพ');
+    const image = await scaleJpeg(file).catch(() => { throw new Error('เปิดภาพนี้ไม่ได้ กรุณาถ่ายใหม่'); });
+    const { weight_kg, warnings, notes } = await apiUpload('/scale/read', image);
+    const extra = [...warnings, ...(notes ? [notes] : [])].join(' · ');
+    if (weight_kg == null) {
+      scaleMsg(extra || 'อ่านน้ำหนักไม่ได้ กรุณาพิมพ์เอง', true);
+    } else {
+      input.value = weight_kg.toFixed(1);
+      input.classList.add('from-photo');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      scaleMsg(`อ่านได้ ${weight_kg.toFixed(1)} kg ช่องสีฟ้าคือค่าจากรูป กรุณาตรวจกับตาชั่งก่อนกดบันทึก${extra ? ' · ' + extra : ''}`, Boolean(warnings.length));
+    }
+  } catch (err) {
+    scaleMsg('อ่านน้ำหนักไม่สำเร็จ: ' + err.message + ' กรุณาพิมพ์เอง', true);
+  } finally {
+    $('pa-scale-btn').disabled = false;
+    input.focus();
+    input.select();
+  }
+});
+// พยาบาลแก้ค่าเองแล้ว ไม่ใช่ค่าจากรูปอีกต่อไป
+$('pa').addEventListener('input', (e) => { if (e.isTrusted && e.target.name === 'pre_weight_kg') e.target.classList.remove('from-photo'); });
 
 $('pa').addEventListener('submit', async (e) => {
   e.preventDefault();

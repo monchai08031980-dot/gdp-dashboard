@@ -6,7 +6,7 @@ import audit from './routes/audit.js';
 import settings from './routes/settings.js';
 import { schedule, shifts } from './routes/schedule.js';
 import { ROLES } from './db.js';
-import { screenReaderEnabled } from './screenReader.js';
+import { screenReaderEnabled, scaleReaderEnabled, readScale, imageType } from './screenReader.js';
 
 export const app = express();
 app.use(express.json());
@@ -27,7 +27,15 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, screen_reader: screenReaderEnabled() }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, screen_reader: screenReaderEnabled(), scale_reader: scaleReaderEnabled() }));
+
+// อ่านน้ำหนักจากรูปตาชั่ง ยังไม่บันทึกอะไร ส่งค่ากลับให้พยาบาลตรวจในฟอร์มซักประวัติ แล้วกดบันทึกเอง (รูปไม่ได้เก็บไว้)
+app.post('/api/scale/read', express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: 10 * 1024 * 1024 }), async (req, res) => {
+  if (!req.actor) return res.status(400).json({ error: 'กรุณาเลือกตำแหน่งผู้บันทึก' });
+  const type = Buffer.isBuffer(req.body) ? imageType(req.body) : null;
+  if (!type) return res.status(415).json({ error: 'รองรับเฉพาะภาพ JPG, PNG หรือ WEBP' });
+  res.json(await readScale(req.body, type));
+});
 app.use('/api/patients', patients);
 app.use('/api/sessions', sessions);
 app.use('/api/audit', audit);
