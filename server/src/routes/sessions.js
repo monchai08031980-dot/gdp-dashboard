@@ -2,7 +2,7 @@ import express, { Router } from 'express';
 import { pool, withAudit } from '../db.js';
 import { pick, insertSql, updateSql } from '../crud.js';
 import { readMachineScreen, imageType } from '../screenReader.js';
-import { loadSession, latestExport, confirmSession } from '../dataExport.js';
+import { loadSession, latestExport, prepareExport, confirmSession } from '../dataExport.js';
 import { checkSession } from '../../public/sessionCheck.js';
 import { SESSION_COLUMNS, VITAL_FIELDS, MEDICATION_FIELDS } from '../../public/form519.js';
 
@@ -50,9 +50,23 @@ router.get('/:id/check', async (req, res) => {
   res.json(checkSession(data.session, data));
 });
 
-// ยืนยันข้อมูลทั้งหมด แล้วบันทึกไฟล์ลงโฟลเดอร์เก็บข้อมูล
-router.post('/:id/confirm', async (req, res) => {
-  const row = await confirmSession(req.actor, req.reason, req.params.id, { acknowledgeWarnings: req.body?.acknowledge_warnings === true });
+// ยืนยันข้อมูลทั้งหมด ขั้นที่ 1: ตรวจแล้วส่งข้อมูลที่จะบันทึกกลับมาให้สร้างตัวอย่าง PDF (ยังไม่บันทึก)
+router.post('/:id/export/prepare', async (req, res) => {
+  res.json(await prepareExport(req.actor, req.params.id));
+});
+
+// ขั้นที่ 2: ยืนยันและบันทึก ?target=server|local|download&confirmed_at=&sha256=&ack=1&folder=
+// target=server ส่งไฟล์ PDF มาใน body (application/pdf) เพื่อเขียนลงโฟลเดอร์บนเครื่องเซิร์ฟเวอร์
+router.post('/:id/confirm', express.raw({ type: 'application/pdf', limit: 30 * 1024 * 1024 }), async (req, res) => {
+  const q = req.query;
+  const row = await confirmSession(req.actor, req.reason, req.params.id, {
+    acknowledgeWarnings: q.ack === '1',
+    confirmedAt: q.confirmed_at,
+    sha256: q.sha256,
+    target: q.target || 'server',
+    folder: q.folder,
+    pdf: Buffer.isBuffer(req.body) ? req.body : null,
+  });
   res.status(201).json(row);
 });
 

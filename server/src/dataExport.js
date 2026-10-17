@@ -86,30 +86,17 @@ async function writeNew(path, content) {
   await rename(tmp, path);
 }
 
-// ยืนยันข้อมูลทั้งหมด: errors ต้องเป็นศูนย์ warnings ต้องให้ผู้บันทึกรับทราบก่อน
-export async function confirmSession(actor, reason, id, { acknowledgeWarnings = false } = {}) {
-  if (!actor?.name) throw httpError(400, 'กรุณาเลือกตำแหน่งผู้บันทึก');
-  const data = await loadSession(id);
-  if (!data) throw httpError(404, 'ไม่พบรอบการฟอก');
-  const check = checkSession(data.session, data);
-  if (check.errors.length) throw httpError(422, `ยังยืนยันไม่ได้ พบข้อมูลที่ต้องแก้ ${check.errors.length} รายการ`, { check });
-  if (check.warnings.length && !acknowledgeWarnings) throw httpError(409, `มีข้อควรตรวจ ${check.warnings.length} รายการ กรุณาตรวจและติ๊กรับทราบก่อนยืนยัน`, { check });
-  const folder = await getDataFolder();
-  if (!folder) throw httpError(400, 'ยังไม่ได้ตั้งค่าโฟลเดอร์เก็บข้อมูล กรุณาตั้งค่าที่หน้า "รายการบันทึก" ก่อน');
-
+// สร้างข้อมูลที่จะบันทึกจากข้อมูลในฐานข้อมูลตอนนี้ เวลายืนยันเดียวกันให้ผลเหมือนเดิมทุกครั้ง
+// จึงใช้ sha256 ตรวจได้ว่าข้อมูลไม่เปลี่ยนระหว่างดูตัวอย่าง PDF กับตอนกดบันทึก
+function buildExport(data, check, actor, confirmedAt) {
   const { session } = data;
-  const now = new Date();
   const day = String(session.session_date);
-  const dir = join(folder, day.slice(0, 4), day);
-  const name = `${day}_shift${session.shift ?? 'x'}_bed${session.bed_no ?? 'x'}_HN${safe(session.hn)}_${stamp(now)}`;
-  const lastAuditId = Number((await pool.query(LAST_AUDIT_SQL, [id])).rows[0].id);
   const record = {
     format: 'hemo-sync-519',
     version: 1,
-    confirmed_at: now.toISOString(),
+    confirmed_at: confirmedAt.toISOString(),
     confirmed_by: actor.name,
     confirmed_by_role: actor.role || null,
-    reason: reason || null,
     patient: { id: session.patient_id, hn: session.hn, prefix: session.prefix, first_name: session.first_name, last_name: session.last_name },
     session: data.session,
     vitals: data.vitals,
@@ -117,18 +104,78 @@ export async function confirmSession(actor, reason, id, { acknowledgeWarnings = 
     check: { errors: [], warnings: check.warnings },
   };
   const json = JSON.stringify(record, null, 2);
-  const sha256 = createHash('sha256').update(json).digest('hex');
-  try {
-    await mkdir(dir, { recursive: true });
-    await writeNew(join(dir, `${name}.json`), json);
-    await writeNew(join(dir, `${name}_vitals.csv`), vitalsCsv(data.vitals));
-  } catch (err) {
-    if (err.status) throw err;
-    throw httpError(500, `บันทึกไฟล์ลงโฟลเดอร์ไม่ได้ (${err.code || err.message}) ตรวจโฟลเดอร์ในหน้าตั้งค่า`);
+  return {
+    record,
+    json,
+    csv: vitalsCsv(data.vitals),
+    sha256: createHash('sha256').update(json).digest('hex'),
+    dir: [day.slice(0, 4), day],
+    name: `${day}_shift${session.shift ?? 'x'}_bed${session.bed_no ?? 'x'}_HN${safe(session.hn)}_${stamp(confirmedAt)}`,
+  };
+}
+
+async function checked(actor, id) {
+  if (!actor?.name) throw httpError(400, 'กรุณาเลือกตำแหน่งผู้บันทึก');
+  const data = await loadSession(id);
+  if (!data) throw httpError(404, 'ไม่พบรอบการฟอก');
+  const check = checkSession(data.session, data);
+  if (check.errors.length) throw httpError(422, `ยังยืนยันไม่ได้ พบข้อมูลที่ต้องแก้ ${check.errors.length} รายการ`, { check });
+  return { data, check };
+}
+
+// ขั้นที่ 1: ตรวจแล้วสร้างไฟล์ให้ดูตัวอย่าง (PDF สร้างที่หน้าเว็บจาก record) ยังไม่บันทึกอะไร
+export async function prepareExport(actor, id) {
+  const { data, check } = await checked(actor, id);
+  const out = buildExport(data, check, actor, new Date());
+  return { check, confirmed_at: out.record.confirmed_at, ...out };
+}
+
+export const TARGETS = ['server', 'local', 'download'];
+
+// ขั้นที่ 2: ยืนยัน ข้อมูลต้องตรงกับตัวอย่างที่ดู (sha256) ข้อควรตรวจต้องรับทราบแล้ว
+// target=server เขียน JSON, CSV และ PDF ลงโฟลเดอร์บนเครื่องเซิร์ฟเวอร์
+// target=local/download หน้าเว็บเขียนไฟล์ลงโฟลเดอร์ที่เลือกในเครื่องผู้ใช้เอง เซิร์ฟเวอร์บันทึกการยืนยันไว้
+export async function confirmSession(actor, reason, id, { acknowledgeWarnings = false, confirmedAt, sha256, target = 'server', folder: localFolder, pdf } = {}) {
+  if (!TARGETS.includes(target)) throw httpError(400, 'ที่เก็บไฟล์ไม่ถูกต้อง');
+  const { data, check } = await checked(actor, id);
+  if (check.warnings.length && !acknowledgeWarnings) throw httpError(409, `มีข้อควรตรวจ ${check.warnings.length} รายการ กรุณาตรวจและติ๊กรับทราบก่อนยืนยัน`, { check });
+  const at = new Date(confirmedAt);
+  if (!confirmedAt || Number.isNaN(at.getTime()) || Math.abs(Date.now() - at.getTime()) > 2 * 60 * 60 * 1000) {
+    throw httpError(400, 'กรุณากดดูตัวอย่าง PDF ใหม่ก่อนบันทึก');
   }
+  const out = buildExport(data, check, actor, at);
+  if (out.sha256 !== sha256) throw httpError(409, 'ข้อมูลมีการเปลี่ยนแปลงหลังสร้างตัวอย่าง PDF กรุณาตรวจและดูตัวอย่างใหม่', { check });
+
+  let folder;
+  let base;
+  let pdfPath = null;
+  if (target === 'server') {
+    folder = await getDataFolder();
+    if (!folder) throw httpError(400, 'ยังไม่ได้ตั้งค่าโฟลเดอร์บนเครื่องเซิร์ฟเวอร์ กรุณาตั้งค่าที่ "📁 ตั้งค่าโฟลเดอร์เก็บข้อมูล" ก่อน');
+    if (!Buffer.isBuffer(pdf) || pdf.subarray(0, 5).toString('latin1') !== '%PDF-') throw httpError(400, 'ไม่ได้รับไฟล์ PDF');
+    const dir = join(folder, ...out.dir);
+    base = join(dir, out.name);
+    pdfPath = `${base}.pdf`;
+    try {
+      await mkdir(dir, { recursive: true });
+      await writeNew(`${base}.json`, out.json);
+      await writeNew(`${base}_vitals.csv`, out.csv);
+      await writeNew(pdfPath, pdf);
+    } catch (err) {
+      if (err.status) throw err;
+      throw httpError(500, `บันทึกไฟล์ลงโฟลเดอร์ไม่ได้ (${err.code || err.message}) ตรวจโฟลเดอร์ในหน้าตั้งค่า`);
+    }
+  } else {
+    // โฟลเดอร์ในเครื่องผู้ใช้ เบราว์เซอร์บอกได้แค่ชื่อโฟลเดอร์ ไม่ใช่ path เต็ม
+    folder = String(localFolder || (target === 'download' ? 'ดาวน์โหลด' : '')).trim().slice(0, 200);
+    if (!folder) throw httpError(400, 'กรุณาเลือกโฟลเดอร์');
+    base = [folder, ...out.dir, out.name].join('/');
+    pdfPath = `${base}.pdf`;
+  }
+  const lastAuditId = Number((await pool.query(LAST_AUDIT_SQL, [id])).rows[0].id);
   return withAudit(actor, reason || 'ยืนยันข้อมูลทั้งหมด', async (db) => (await db.query(
-    `INSERT INTO session_exports (session_id, folder, file_path, csv_path, sha256, warnings, confirmed_by, confirmed_by_role, last_audit_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-    [id, folder, join(dir, `${name}.json`), join(dir, `${name}_vitals.csv`), sha256, check.warnings.map((w) => w.message), actor.name, actor.role || null, lastAuditId],
+    `INSERT INTO session_exports (session_id, target, folder, file_path, csv_path, pdf_path, sha256, warnings, confirmed_by, confirmed_by_role, last_audit_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+    [id, target, folder, `${base}.json`, `${base}_vitals.csv`, pdfPath, out.sha256, check.warnings.map((w) => w.message), actor.name, actor.role || null, lastAuditId],
   )).rows[0]);
 }

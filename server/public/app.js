@@ -1,5 +1,7 @@
 // หน้าบันทึกการฟอกเลือด: รายการรอบฟอก, แบบฟอร์ม 519, บันทึกระหว่างฟอก, ยา และประวัติการแก้ไข
 import { SECTIONS, VITAL_FIELDS, MEDICATION_FIELDS } from './form519.js';
+import { buildPdf519 } from './pdf519.js';
+import { getSaveMode, setSaveMode, canPickFolder, savedFolder, pickFolder, writeToFolder, makeZip, downloadFile } from './localSave.js';
 import {
   $, api, apiList, apiUpload, normalizeHm, hhmm, esc, fmtTime, fmtDate, age, readField, fieldValue, renderInput, renderField, needUser, byWho, ACTION, TABLE,
 } from './common.js';
@@ -361,32 +363,47 @@ $('cap-save').addEventListener('click', async () => {
 // ยืนยันข้อมูลทั้งหมด: ตรวจทั้งแบบฟอร์มที่เซิร์ฟเวอร์ (กติกาใน sessionCheck.js) แล้วบันทึกไฟล์ลงโฟลเดอร์เก็บข้อมูล
 // ต้องไม่มีข้อผิดพลาด และข้อควรตรวจต้องติ๊กรับทราบก่อน การยืนยันมี audit log
 // ---------------------------------------------------------------------------
-let dataFolder = null;
+let dataFolder = null; // โฟลเดอร์บนเครื่องเซิร์ฟเวอร์
+let localFolder = null; // โฟลเดอร์ที่เลือกในเครื่องนี้ (FileSystemDirectoryHandle)
+let prepared = null; // ข้อมูลที่จะบันทึกและ PDF ที่แสดงตัวอย่างอยู่
 const confirmMsg = (text) => { $('confirm-msg').textContent = text; };
+
+function targetText() {
+  if (getSaveMode() === 'server') return dataFolder ? `โฟลเดอร์บนเครื่องเซิร์ฟเวอร์ ${dataFolder}` : 'โฟลเดอร์บนเครื่องเซิร์ฟเวอร์ (ยังไม่ได้ตั้งค่า)';
+  if (localFolder) return `โฟลเดอร์ "${localFolder.name}" ในเครื่องนี้`;
+  return canPickFolder() ? 'โฟลเดอร์ในเครื่องนี้ (ยังไม่ได้เลือก)' : 'ดาวน์โหลดเป็นไฟล์ zip ลงเครื่องนี้';
+}
 
 async function loadFolder() {
   try { dataFolder = (await api('/settings')).data_folder; } catch { dataFolder = null; }
+  localFolder = await savedFolder();
   $('folder-current').textContent = dataFolder || 'ยังไม่ได้ตั้งค่า';
-  $('confirm-folder').textContent = dataFolder || '(ยังไม่ได้ตั้งค่า)';
+  $('folder-local').textContent = localFolder ? localFolder.name : canPickFolder() ? 'ยังไม่ได้เลือก' : 'เลือกไม่ได้ในเบราว์เซอร์นี้ (จะดาวน์โหลดเป็น zip)';
+  for (const r of document.querySelectorAll('input[name="save-mode"]')) r.checked = r.value === getSaveMode();
+  $('confirm-folder').textContent = targetText();
+  if (prepared) $('confirm-target').textContent = targetText();
 }
 
 function renderConfirmState() {
   const e = current?.export;
   const el = $('confirm-state');
   if (!e) { el.className = 'confirm-state'; el.textContent = 'ยังไม่ได้ยืนยัน'; return; }
+  const where = e.target === 'server' ? e.file_path.replace(/\.json$/, '.pdf') : e.pdf_path || e.file_path;
   el.className = 'confirm-state ' + (e.edited_after ? 'stale' : 'ok');
   el.innerHTML = e.edited_after
     ? `⚠️ มีการแก้ไขหลังยืนยัน (ยืนยันไว้เมื่อ ${esc(fmtTime(e.created_at))}) กรุณายืนยันใหม่`
-    : `✔ ยืนยันแล้ว ${esc(fmtTime(e.created_at))} โดย ${esc(e.confirmed_by)} · <span class="export-path">${esc(e.file_path)}</span>`;
+    : `✔ ยืนยันแล้ว ${esc(fmtTime(e.created_at))} โดย ${esc(e.confirmed_by)} · <span class="export-path">${esc(where)}</span>`;
 }
 
 function resetConfirm() {
+  prepared = null;
   $('confirm-result').hidden = true;
+  $('pdf-pages').innerHTML = '';
   $('confirm-ack').checked = false;
   $('confirm-reason').value = '';
   confirmMsg('');
   renderConfirmState();
-  $('confirm-folder').textContent = dataFolder || '(ยังไม่ได้ตั้งค่า)';
+  $('confirm-folder').textContent = targetText();
 }
 
 // แถวว่างท้ายตาราง (ไว้เพิ่มรายการ) ที่กรอกค่าแล้วแต่ยังไม่ได้กดเพิ่ม
@@ -402,11 +419,21 @@ function goToField(field) {
 }
 
 const checkItem = (item) => `<li data-field="${esc(item.field)}"><small>${esc(item.section)}</small>${esc(item.message)}</li>`;
+const fmtSize = (n) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
+// ไฟล์ทั้งสามที่จะบันทึก
+const exportFiles = (p) => [
+  { name: `${p.name}.pdf`, data: p.pdf },
+  { name: `${p.name}.json`, data: new Blob([p.json], { type: 'application/json' }) },
+  { name: `${p.name}_vitals.csv`, data: new Blob([p.csv], { type: 'text/csv' }) },
+];
+
+// ตรวจข้อมูล ถ้าไม่มีข้อผิดพลาดสร้างตัวอย่าง PDF จากข้อมูลที่จะบันทึกจริง
 $('confirm-check').addEventListener('click', async () => {
   if (needUser('confirm-msg')) return;
   if (Object.keys(formChanges()).length) { confirmMsg('มีข้อมูลในแบบฟอร์มที่ยังไม่ได้บันทึก กด "บันทึกแบบฟอร์ม" ก่อน'); return; }
   if (pendingRow('vitals') || pendingRow('medications')) { confirmMsg('มีแถวใหม่ที่กรอกแล้วแต่ยังไม่ได้กด "เพิ่ม" กรุณาเพิ่มหรือลบค่าออกก่อน'); return; }
+  prepared = null;
   confirmMsg('กำลังตรวจข้อมูลทั้งหมด…');
   await loadFolder();
   let check;
@@ -417,30 +444,79 @@ $('confirm-check').addEventListener('click', async () => {
   $('confirm-warnings').innerHTML = warnings.map(checkItem).join('');
   $('confirm-summary').textContent = errors.length
     ? `❌ พบข้อมูลที่ต้องแก้ ${errors.length} รายการ${warnings.length ? ` และข้อควรตรวจ ${warnings.length} รายการ` : ''} กดที่รายการเพื่อไปที่ช่องนั้น`
-    : warnings.length ? `⚠️ ไม่มีข้อผิดพลาด แต่มีข้อควรตรวจ ${warnings.length} รายการ` : '✔ ตรวจครบทุกส่วนแล้ว ไม่พบข้อผิดพลาด';
-  $('confirm-go').hidden = Boolean(errors.length);
+    : warnings.length ? `⚠️ ไม่มีข้อผิดพลาด แต่มีข้อควรตรวจ ${warnings.length} รายการ ตรวจตัวอย่าง PDF ด้านล่างก่อนบันทึก` : '✔ ตรวจครบทุกส่วนแล้ว ไม่พบข้อผิดพลาด ตรวจตัวอย่าง PDF ด้านล่างก่อนบันทึก';
+  $('confirm-go').hidden = true;
   $('confirm-ack-wrap').hidden = !warnings.length;
   $('confirm-ack').checked = false;
-  confirmMsg(!errors.length && !dataFolder ? 'ยังไม่ได้ตั้งค่าโฟลเดอร์เก็บข้อมูล กด "📁 ตั้งค่าโฟลเดอร์เก็บข้อมูล" ด้านบนก่อน' : '');
+  if (errors.length) { confirmMsg(''); return; }
+
+  confirmMsg('กำลังสร้างตัวอย่างไฟล์ PDF…');
+  try {
+    const p = await api(`/sessions/${current.id}/export/prepare`, { method: 'POST', body: '{}' });
+    const { pages, pdf } = await buildPdf519(p.record, p.sha256);
+    prepared = { ...p, pdf };
+    $('pdf-pages').replaceChildren(...pages);
+    $('pdf-info').textContent = `${pages.length} หน้า · ${fmtSize(pdf.size)}`;
+    $('confirm-files').innerHTML = exportFiles(prepared).map((f) => `<li>${esc([...p.dir, f.name].join(' / '))}</li>`).join('');
+    $('confirm-target').textContent = targetText();
+    $('confirm-go').hidden = false;
+    confirmMsg('');
+  } catch (err) {
+    confirmMsg('สร้างตัวอย่าง PDF ไม่สำเร็จ: ' + err.message);
+  }
 });
 
 for (const id of ['confirm-errors', 'confirm-warnings']) {
   $(id).addEventListener('click', (e) => { const li = e.target.closest('li[data-field]'); if (li) goToField(li.dataset.field); });
 }
 $('confirm-cancel').addEventListener('click', resetConfirm);
+$('confirm-change').addEventListener('click', () => {
+  $('folder-panel').hidden = false;
+  $('folder-panel').scrollIntoView({ behavior: 'smooth' });
+  loadFolder();
+});
+$('pdf-open').addEventListener('click', () => {
+  if (!prepared) return;
+  const url = URL.createObjectURL(prepared.pdf);
+  if (!window.open(url, '_blank')) confirmMsg('เบราว์เซอร์ไม่ให้เปิดแท็บใหม่ ดูตัวอย่างด้านล่างได้เลย');
+  setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
+});
 
+// บันทึก: เขียนไฟล์ลงที่เก็บที่เลือก แล้วบันทึกการยืนยัน (มี audit log) ถ้ายืนยันไม่สำเร็จ ลบไฟล์ที่เพิ่งเขียนออก
 $('confirm-save').addEventListener('click', async () => {
-  if (needUser('confirm-msg')) return;
+  if (needUser('confirm-msg') || !prepared) return;
   if (!$('confirm-ack-wrap').hidden && !$('confirm-ack').checked) { confirmMsg('กรุณาติ๊กว่าได้ตรวจข้อควรตรวจทุกข้อแล้ว'); return; }
-  if (!dataFolder) { confirmMsg('ยังไม่ได้ตั้งค่าโฟลเดอร์เก็บข้อมูล'); return; }
+  const mode = getSaveMode();
+  if (mode === 'server' && !dataFolder) { confirmMsg('ยังไม่ได้ตั้งค่าโฟลเดอร์บนเครื่องเซิร์ฟเวอร์ กด "เปลี่ยนที่เก็บ"'); return; }
+  const p = prepared;
+  const q = { confirmed_at: p.confirmed_at, sha256: p.sha256, ack: $('confirm-ack').checked ? '1' : '' };
+  const confirmUrl = (extra) => `/sessions/${current.id}/confirm?${new URLSearchParams({ ...q, ...extra })}`;
   $('confirm-save').disabled = true;
   confirmMsg('กำลังบันทึกลงโฟลเดอร์…');
   try {
-    const row = await api(`/sessions/${current.id}/confirm`, { method: 'POST', body: JSON.stringify({ acknowledge_warnings: $('confirm-ack').checked }) }, 'confirm-reason');
+    let row;
+    let done;
+    if (mode === 'server') {
+      row = await apiUpload(confirmUrl({ target: 'server' }), new File([p.pdf], `${p.name}.pdf`, { type: 'application/pdf' }), 'confirm-reason');
+      done = `บันทึกแล้วที่เครื่องเซิร์ฟเวอร์: ${row.pdf_path}`;
+    } else if (localFolder || (canPickFolder() && (localFolder = await pickFolder().catch(() => null)))) {
+      const undo = await writeToFolder(localFolder, p.dir, exportFiles(p));
+      try {
+        row = await api(confirmUrl({ target: 'local', folder: localFolder.name }), { method: 'POST' }, 'confirm-reason');
+      } catch (err) {
+        await undo();
+        throw err;
+      }
+      done = `บันทึกแล้ว 3 ไฟล์ในโฟลเดอร์ ${[localFolder.name, ...p.dir].join(' / ')}`;
+    } else {
+      const zip = await makeZip(exportFiles(p).map((f) => ({ ...f, name: [...p.dir, f.name].join('/') })));
+      await downloadFile(`${p.name}.zip`, zip);
+      row = await api(confirmUrl({ target: 'download', folder: 'ดาวน์โหลด' }), { method: 'POST' }, 'confirm-reason');
+      done = `ดาวน์โหลดไฟล์ ${p.name}.zip แล้ว (ข้างในมี PDF, JSON และ CSV)`;
+    }
     await openSession(current.id);
-    confirmMsg(row.simulated ? `หน้าตัวอย่าง: ตรวจผ่านและบันทึกการยืนยันแล้ว แต่ไม่ได้เขียนไฟล์จริง (ระบบจริงจะบันทึกที่ ${row.file_path})` : `บันทึกแล้ว: ${row.file_path}`);
+    confirmMsg(row.simulated ? `${done} · หน้าตัวอย่าง: การยืนยันเก็บไว้ในเบราว์เซอร์นี้ชั่วคราว` : done);
   } catch (err) {
-    // ข้อมูลเปลี่ยนระหว่างนั้น: แสดงผลตรวจล่าสุดจากเซิร์ฟเวอร์
     if (err.body?.check) {
       $('confirm-errors').innerHTML = err.body.check.errors.map(checkItem).join('');
       $('confirm-warnings').innerHTML = err.body.check.warnings.map(checkItem).join('');
@@ -451,22 +527,36 @@ $('confirm-save').addEventListener('click', async () => {
   }
 });
 
-// ตั้งค่าโฟลเดอร์เก็บข้อมูล
+// ตั้งค่าที่เก็บไฟล์
 $('folder-open').addEventListener('click', async () => {
   $('folder-panel').hidden = !$('folder-panel').hidden;
   if (!$('folder-panel').hidden) { await loadFolder(); $('folder-path').value = dataFolder || ''; $('folder-msg').textContent = ''; }
 });
 $('folder-close').addEventListener('click', () => { $('folder-panel').hidden = true; });
+for (const r of document.querySelectorAll('input[name="save-mode"]')) {
+  r.addEventListener('change', () => { setSaveMode(r.value); loadFolder(); });
+}
+$('folder-pick').addEventListener('click', async () => {
+  try {
+    const handle = await pickFolder();
+    if (!handle) return;
+    setSaveMode('local');
+    await loadFolder();
+    $('folder-msg').textContent = `เลือกโฟลเดอร์ "${handle.name}" แล้ว`;
+  } catch (err) {
+    $('folder-msg').textContent = err.message;
+  }
+});
 $('folder-save').addEventListener('click', async () => {
   if (needUser('folder-msg')) return;
   $('folder-msg').textContent = 'กำลังตรวจโฟลเดอร์…';
   try {
     const { data_folder, simulated } = await api('/settings/data-folder', { method: 'PUT', body: JSON.stringify({ path: $('folder-path').value }) }, 'folder-reason');
     $('folder-reason').value = '';
+    setSaveMode('server');
     await loadFolder();
     $('folder-path').value = data_folder;
-    $('folder-msg').textContent = simulated ? 'บันทึกแล้ว (หน้าตัวอย่าง ไม่ได้ตรวจโฟลเดอร์จริง)' : 'บันทึกแล้ว ทดลองเขียนไฟล์ลงโฟลเดอร์ได้';
-    if (current) $('confirm-folder').textContent = data_folder;
+    $('folder-msg').textContent = simulated ? 'บันทึกแล้ว (หน้าตัวอย่าง ไม่มีเครื่องเซิร์ฟเวอร์จริง)' : 'บันทึกแล้ว ทดลองเขียนไฟล์ลงโฟลเดอร์ได้';
   } catch (err) {
     $('folder-msg').textContent = 'บันทึกไม่สำเร็จ: ' + err.message;
   }

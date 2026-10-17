@@ -55,7 +55,7 @@ test('ยืนยันข้อมูลทั้งหมด: ตรวจก
   // ข้อมูลยังไม่ครบ: ตรวจเจอ error และยืนยันไม่ได้
   const check = await (await fetch(`${base}/sessions/${id}/check`)).json();
   assert.ok(check.errors.length > 5);
-  let r = await json(`/sessions/${id}/confirm`, 'POST', {});
+  let r = await json(`/sessions/${id}/export/prepare`, 'POST', {});
   assert.equal(r.status, 422);
   assert.ok((await r.json()).check.errors.length);
 
@@ -69,14 +69,23 @@ test('ยืนยันข้อมูลทั้งหมด: ตรวจก
   assert.equal(r.status, 200);
   assert.equal((await (await fetch(base + '/settings')).json()).data_folder, folder);
 
-  // ข้อควรตรวจต้องติ๊กรับทราบก่อน
+  // ขั้นที่ 1: สร้างตัวอย่าง ขั้นที่ 2: ยืนยันพร้อม PDF ข้อควรตรวจต้องติ๊กรับทราบก่อน
   assert.equal((await json(`/sessions/${id}`, 'PATCH', { weight_loss_kg: 3 })).status, 200);
-  r = await json(`/sessions/${id}/confirm`, 'POST', {});
-  assert.equal(r.status, 409);
-  r = await json(`/sessions/${id}/confirm`, 'POST', { acknowledge_warnings: true });
+  const prep = await (await json(`/sessions/${id}/export/prepare`, 'POST', {})).json();
+  assert.equal(prep.check.warnings.length, 1);
+  assert.equal(prep.record.vitals.length, 5);
+  const PDF = Buffer.from('%PDF-1.4\n% mock\n%%EOF\n');
+  const confirm = (q, body = PDF) => fetch(`${base}/sessions/${id}/confirm?${new URLSearchParams(q)}`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/pdf' }, body });
+  const q = { target: 'server', confirmed_at: prep.confirmed_at, sha256: prep.sha256 };
+  assert.equal((await confirm(q)).status, 409);
+  assert.equal((await confirm({ ...q, ack: '1', sha256: 'x' })).status, 409);
+  assert.equal((await confirm({ ...q, ack: '1' }, Buffer.from('nope'))).status, 400);
+  r = await confirm({ ...q, ack: '1' });
   assert.equal(r.status, 201);
   const exp = await r.json();
+  assert.equal(exp.target, 'server');
   assert.ok(exp.file_path.startsWith(join(folder, '2026', '2026-10-16')));
+  assert.deepEqual(await readFile(exp.pdf_path), PDF);
   const content = await readFile(exp.file_path, 'utf8');
   assert.equal(createHash('sha256').update(content).digest('hex'), exp.sha256);
   const saved = JSON.parse(content);
@@ -94,6 +103,20 @@ test('ยืนยันข้อมูลทั้งหมด: ตรวจก
   assert.equal((await json(`/sessions/${id}`, 'PATCH', { weight_loss_kg: 2.2 })).status, 200);
   detail = await (await fetch(`${base}/sessions/${id}`)).json();
   assert.equal(detail.export.edited_after, true);
+
+  // ข้อมูลเปลี่ยนหลังดูตัวอย่าง: ยืนยันไม่ได้
+  const prep2 = await (await json(`/sessions/${id}/export/prepare`, 'POST', {})).json();
+  assert.equal((await json(`/sessions/${id}`, 'PATCH', { machine_no: 'M-08' })).status, 200);
+  assert.equal((await confirm({ target: 'local', folder: 'HemoData', confirmed_at: prep2.confirmed_at, sha256: prep2.sha256 }, undefined)).status, 409);
+  // โฟลเดอร์ในเครื่องผู้ใช้: เซิร์ฟเวอร์บันทึกการยืนยัน หน้าเว็บเขียนไฟล์เอง
+  const prep3 = await (await json(`/sessions/${id}/export/prepare`, 'POST', {})).json();
+  r = await confirm({ target: 'local', folder: 'HemoData', confirmed_at: prep3.confirmed_at, sha256: prep3.sha256 }, undefined);
+  assert.equal(r.status, 201);
+  const local = await r.json();
+  assert.equal(local.target, 'local');
+  assert.equal(local.pdf_path, `HemoData/2026/2026-10-16/${prep3.name}.pdf`);
+  detail = await (await fetch(`${base}/sessions/${id}`)).json();
+  assert.equal(detail.export.edited_after, false);
 
   const audit = await (await fetch(`${base}/audit?session_id=${id}`)).json();
   assert.ok(audit.some((a) => a.table_name === 'session_exports' && a.action === 'INSERT'));

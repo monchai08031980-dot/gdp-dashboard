@@ -36,13 +36,26 @@
         <button type="button" id="folder-open" class="ghost">📁 ตั้งค่าโฟลเดอร์เก็บข้อมูล</button>
       </div>
       <div class="subpanel" id="folder-panel" hidden>
-        <h3>โฟลเดอร์เก็บข้อมูล</h3>
-        <p class="cap-hint">เมื่อกด "ยืนยันข้อมูลทั้งหมด" ระบบจะบันทึกไฟล์ลงโฟลเดอร์นี้บนเครื่องคอมพิวเตอร์ที่ใช้เก็บข้อมูล (เครื่องที่รันระบบ) แยกเป็นโฟลเดอร์ปี/วันที่ ไฟล์ละรอบฟอก (JSON และ CSV)</p>
-        <p>โฟลเดอร์ปัจจุบัน: <b id="folder-current">-</b></p>
+        <h3>ที่เก็บไฟล์เมื่อกด "ยืนยันข้อมูลทั้งหมด"</h3>
+        <p class="cap-hint">แต่ละรอบฟอกบันทึกเป็น 3 ไฟล์ (PDF แบบฟอร์ม 519, JSON ข้อมูลครบ, CSV บันทึกระหว่างฟอก) แยกโฟลเดอร์ ปี/วันที่ ไม่เขียนทับไฟล์เดิม</p>
+        <label class="save-mode"><input type="radio" name="save-mode" value="local"> <b>โฟลเดอร์ในเครื่องนี้</b> (เครื่องที่เปิดหน้าเว็บ)</label>
+        <div class="save-mode-body">
+          <div class="actions">
+            <button type="button" id="folder-pick">📂 เลือกโฟลเดอร์</button>
+            <span>โฟลเดอร์ที่เลือก: <b id="folder-local">-</b></span>
+          </div>
+          <p class="cap-hint" id="folder-local-hint">ใช้ได้กับ Chrome หรือ Edge บนคอมพิวเตอร์ ถ้าเลือกโฟลเดอร์ไม่ได้ ระบบจะดาวน์โหลดเป็นไฟล์ zip แทน</p>
+        </div>
+        <label class="save-mode"><input type="radio" name="save-mode" value="server"> <b>โฟลเดอร์บนเครื่องเซิร์ฟเวอร์</b> (เครื่องที่รันระบบ)</label>
+        <div class="save-mode-body">
+          <p>โฟลเดอร์ปัจจุบัน: <b id="folder-current">-</b></p>
+          <div class="actions">
+            <input id="folder-path" placeholder="เช่น D:\HemoData หรือ /srv/hemo-data" aria-label="โฟลเดอร์บนเครื่องเซิร์ฟเวอร์">
+            <input id="folder-reason" placeholder="เหตุผลที่เปลี่ยน (ถ้ามี)">
+            <button type="button" id="folder-save">บันทึกโฟลเดอร์</button>
+          </div>
+        </div>
         <div class="actions">
-          <input id="folder-path" placeholder="เช่น D:\HemoData หรือ /srv/hemo-data" aria-label="โฟลเดอร์เก็บข้อมูล">
-          <input id="folder-reason" placeholder="เหตุผลที่เปลี่ยน (ถ้ามี)">
-          <button type="button" id="folder-save">บันทึกโฟลเดอร์</button>
           <button type="button" id="folder-close" class="ghost">ปิด</button>
           <span id="folder-msg"></span>
         </div>
@@ -119,7 +132,7 @@
           <h3>ยืนยันข้อมูลทั้งหมด</h3>
           <span id="confirm-state" class="confirm-state"></span>
         </div>
-        <p class="cap-hint">ระบบจะตรวจทุกส่วนของแบบฟอร์มอย่างละเอียดก่อน แล้วจึงบันทึกเป็นไฟล์ลงโฟลเดอร์ <b id="confirm-folder">-</b></p>
+        <p class="cap-hint">ระบบจะตรวจทุกส่วนของแบบฟอร์มอย่างละเอียด แสดงตัวอย่างไฟล์ PDF ให้ดูก่อน แล้วจึงบันทึกลงโฟลเดอร์ <b id="confirm-folder">-</b></p>
         <div class="actions">
           <button type="button" id="confirm-check">✅ ยืนยันข้อมูลทั้งหมด</button>
           <span id="confirm-msg"></span>
@@ -129,10 +142,20 @@
           <ul class="check-list check-error" id="confirm-errors"></ul>
           <ul class="check-list check-warn" id="confirm-warnings"></ul>
           <div id="confirm-go" hidden>
+            <div class="pdf-preview">
+              <div class="actions">
+                <b>ตัวอย่างไฟล์ PDF</b>
+                <span id="pdf-info" class="cap-hint"></span>
+                <button type="button" id="pdf-open" class="ghost">เปิด PDF</button>
+              </div>
+              <div id="pdf-pages" class="pdf-pages"></div>
+            </div>
+            <p>จะบันทึกที่: <b id="confirm-target">-</b> <button type="button" id="confirm-change" class="ghost">เปลี่ยนที่เก็บ</button></p>
+            <ul class="cap-hint" id="confirm-files"></ul>
             <label class="check-ack" id="confirm-ack-wrap"><input type="checkbox" id="confirm-ack"> ตรวจข้อควรตรวจทุกข้อแล้ว ข้อมูลถูกต้อง</label>
             <div class="actions">
               <input id="confirm-reason" placeholder="หมายเหตุการยืนยัน (ถ้ามี)">
-              <button type="button" id="confirm-save">บันทึกลงโฟลเดอร์</button>
+              <button type="button" id="confirm-save">💾 บันทึกลงโฟลเดอร์</button>
               <button type="button" id="confirm-cancel" class="ghost">ยกเลิก</button>
             </div>
           </div>
