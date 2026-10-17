@@ -1,0 +1,23 @@
+{
+  "name": "hemo-sync-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hemo Sync AI - ระบบบันทึกฟอกเลือด ศูนย์ไตเทียมหนองบัวลำภู",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "db:migrate": "node db/migrate.js",
+    "db:seed": "node db/seed.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
+    "express": "^5.3.0",
+    "pg": "^8.13.1"
+  }
+}

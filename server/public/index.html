@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hemo Sync AI · ระบบบันทึกฟอกเลือด</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Hemo Sync AI</h1>
+      <p class="sub">ระบบบันทึกฟอกเลือด ศูนย์ไตเทียมหนองบัวลำภู</p>
+    </div>
+    <div class="user"><span>ผู้บันทึก</span>
+      <select id="user-role" aria-label="ผู้บันทึก"><option value="">เลือกผู้บันทึก</option><option value="NURSE">พยาบาล</option><option value="NURSE_AIDE">ผู้ช่วยพยาบาล</option><option value="DOCTOR">แพทย์</option><option value="CLERK">เสมียน</option><option value="OTHER">อื่นๆ</option></select></div>
+  </header>
+  <div class="banner">ข้อมูลจำลองสำหรับทดสอบเท่านั้น ไม่ใช่ข้อมูลผู้ป่วยจริง</div>
+
+  <nav class="views" aria-label="เมนู">
+    <button type="button" class="view-tab on" data-view="sessions" aria-current="page">การฟอกเลือด</button>
+    <button type="button" class="view-tab" data-view="schedule">เตรียมผู้ป่วย</button>
+    <button type="button" class="view-tab" data-view="consult">ปรึกษาแพทย์ <span class="tab-badge" id="cs-badge" hidden></span></button>
+    <button type="button" class="view-tab" data-view="patients">ผู้ป่วยทั้งหมด</button>
+    <button type="button" class="view-tab" data-view="archive">ข้อมูลผู้ป่วยเก่า</button>
+  </nav>
+
+  <main id="view-sessions">
+    <section class="panel">
+      <div class="toolbar">
+        <h2>รายการฟอกเลือด</h2>
+        <input type="search" id="search" placeholder="ค้นหา HN หรือชื่อผู้ป่วย" aria-label="ค้นหา HN หรือชื่อผู้ป่วย">
+        <input type="date" id="date" aria-label="วันที่">
+        <button id="all" class="ghost">ทุกวัน</button>
+        <button type="button" id="folder-open" class="ghost">📁 ตั้งค่าโฟลเดอร์เก็บข้อมูล</button>
+      </div>
+      <div class="subpanel" id="folder-panel" hidden>
+        <h3>ที่เก็บไฟล์เมื่อกด "ยืนยันข้อมูลทั้งหมด"</h3>
+        <p class="cap-hint">แต่ละรอบฟอกบันทึกเป็น 3 ไฟล์ (PDF แบบฟอร์ม 519, JSON ข้อมูลครบ, CSV บันทึกระหว่างฟอก) แยกโฟลเดอร์ ปี/วันที่ ไม่เขียนทับไฟล์เดิม</p>
+        <label class="save-mode"><input type="radio" name="save-mode" value="local"> <b>โฟลเดอร์ในเครื่องนี้</b> (เครื่องที่เปิดหน้าเว็บ)</label>
+        <div class="save-mode-body">
+          <div class="actions">
+            <button type="button" id="folder-pick">📂 เลือกโฟลเดอร์</button>
+            <span>โฟลเดอร์ที่เลือก: <b id="folder-local">-</b></span>
+          </div>
+          <p class="cap-hint" id="folder-local-hint">ใช้ได้กับ Chrome หรือ Edge บนคอมพิวเตอร์ ถ้าเลือกโฟลเดอร์ไม่ได้ ระบบจะดาวน์โหลดเป็นไฟล์ zip แทน</p>
+        </div>
+        <label class="save-mode"><input type="radio" name="save-mode" value="server"> <b>โฟลเดอร์บนเครื่องเซิร์ฟเวอร์</b> (เครื่องที่รันระบบ)</label>
+        <div class="save-mode-body">
+          <p>โฟลเดอร์ปัจจุบัน: <b id="folder-current">-</b></p>
+          <div class="actions">
+            <input id="folder-path" placeholder="เช่น D:\HemoData หรือ /srv/hemo-data" aria-label="โฟลเดอร์บนเครื่องเซิร์ฟเวอร์">
+            <input id="folder-reason" placeholder="เหตุผลที่เปลี่ยน (ถ้ามี)">
+            <button type="button" id="folder-save">บันทึกโฟลเดอร์</button>
+          </div>
+        </div>
+        <div class="actions">
+          <button type="button" id="folder-close" class="ghost">ปิด</button>
+          <span id="folder-msg"></span>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>วันที่</th><th>No.</th><th>รอบ</th><th>เตียง</th><th>HN</th><th>ชื่อ-สกุล</th><th>Pre / Post BW</th><th>Total UF</th><th>สถานะ</th></tr></thead>
+        <tbody id="sessions"></tbody>
+      </table>
+      <div class="pager">
+        <label class="per-page">แสดง
+          <select id="page-size"><option>10</option><option selected>25</option><option>50</option><option>100</option></select>
+          รายการ</label>
+        <span id="page-info"></span>
+        <span class="pager-buttons">
+          <button type="button" class="ghost" id="prev">ก่อนหน้า</button>
+          <button type="button" class="ghost" id="next">ถัดไป</button>
+        </span>
+      </div>
+    </section>
+
+    <section class="panel" id="detail" hidden>
+      <div class="toolbar">
+        <h2 id="detail-title">แบบบันทึกการฟอกเลือด (519)</h2>
+        <button id="close" class="ghost">ปิด</button>
+      </div>
+      <div class="patient" id="patient"></div>
+      <div class="pa-voice" id="hd-voice">
+        <div class="pa-voice-row">
+          <button type="button" class="ghost" id="hd-mic">🎤 พูดบันทึก</button>
+          <textarea id="hd-voice-text" rows="2" placeholder="พูดหรือพิมพ์ เช่น เวลา 10.30 ความดัน 85/50 ชีพจร 110 เป็นตะคริว ให้นอนหัวต่ำ หยุด UF แจ้งแพทย์"></textarea>
+          <button type="button" class="ghost" id="hd-voice-apply">ใส่ลงฟอร์ม</button>
+        </div>
+        <span class="cap-hint" id="hd-voice-msg">ระบบติ๊ก Complication, Nursing management, Health education ใส่ค่า BP, PR, RR, BFR ในแถวใหม่ของบันทึกระหว่างฟอก และใส่ข้อความใน Nurse Note ให้ตรวจก่อนกดบันทึก</span>
+      </div>
+      <form id="form"></form>
+      <div class="actions">
+        <input id="reason" placeholder="เหตุผลที่แก้ไข (ถ้ามี)">
+        <button id="save">บันทึกแบบฟอร์ม</button>
+        <span id="msg"></span>
+      </div>
+      <div class="vitals-head">
+        <h3>บันทึกระหว่างฟอก</h3>
+        <button type="button" id="cap-open" class="ghost">📷 การถ่ายภาพจากหน้าจอ</button>
+      </div>
+      <div id="cap" class="capture" hidden>
+        <div class="actions">
+          <button type="button" id="cap-camera-btn">📷 ถ่ายหน้าจอเครื่องฟอกไต</button>
+          <input type="file" id="cap-device" accept="image/*" capture="environment" hidden>
+          <label class="file-button ghost">🖼️ เลือกไฟล์จากเครื่อง
+            <input type="file" id="cap-file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"></label>
+          <button type="button" id="cap-close" class="ghost">ปิด</button>
+        </div>
+        <p class="cap-hint" id="cap-hint"></p>
+        <div class="cap-live" id="cap-live" hidden>
+          <video id="cap-video" autoplay playsinline muted></video>
+          <div class="actions">
+            <button type="button" id="cap-shot">📸 ถ่ายภาพ</button>
+            <button type="button" id="cap-live-cancel" class="ghost">ยกเลิก</button>
+          </div>
+        </div>
+        <div class="cap-body" id="cap-body" hidden>
+          <img id="cap-img" alt="ภาพหน้าจอเครื่องฟอกไต">
+          <div class="cap-side">
+            <div class="actions">
+              <button type="button" id="cap-read">อ่านค่าจากภาพ</button>
+              <span id="cap-status" class="cap-status"></span>
+            </div>
+            <div class="cap-scroll"><table class="rows" id="cap-review"></table></div>
+            <ul id="cap-warn" class="cap-warn"></ul>
+            <div class="actions">
+              <button type="button" id="cap-save">บันทึกลงบันทึกระหว่างฟอก</button>
+              <span id="cap-msg"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <table class="rows" id="vitals"></table>
+      <ul class="hd-alerts" id="hd-alerts" hidden></ul>
+      <div class="alert-bar">
+        <button type="button" class="ghost" id="cs-toggle">🩺 ปรึกษาแพทย์</button>
+        <button type="button" class="ghost" id="al-toggle">🔔 ตั้งค่าการเตือน</button>
+        <span class="cap-hint" id="al-summary"></span>
+      </div>
+      <div class="subpanel al-settings" id="al" hidden>
+        <h3>ตั้งค่าการเตือนระหว่างฟอก</h3>
+        <p class="cap-hint">ใช้กับทุกเครื่องและทุกรอบฟอก เสียงดังเมื่อบันทึกแถวที่มีค่าผิดปกติ SMS ส่งจากเซิร์ฟเวอร์ ไม่มีชื่อหรือ HN ผู้ป่วย มีเพียงเตียง รอบ เวลา และค่าที่ผิดปกติ ค่าเดิมส่งครั้งเดียว</p>
+        <fieldset><legend>เสียงเตือน</legend>
+          <label class="field"><span>เปิดเสียง</span><select id="al-sound-on"><option value="1">เปิด</option><option value="0">ปิด</option></select></label>
+          <label class="field"><span>ดังเมื่อ</span><select id="al-sound-level"></select></label>
+          <label class="field"><span>เสียงแบบ</span><select id="al-tone"></select></label>
+          <label class="field"><span>ความดัง <b id="al-volume-v"></b></span><input type="range" id="al-volume" min="0" max="100" step="10"></label>
+          <label class="field"><span>ดังกี่ครั้ง</span><input type="number" id="al-repeat" min="1" max="10"></label>
+          <div class="field"><span>&nbsp;</span><button type="button" class="ghost" id="al-play">▶ ทดลองเสียง</button></div>
+        </fieldset>
+        <fieldset><legend>SMS แจ้งเตือน</legend>
+          <label class="field"><span>ส่ง SMS</span><select id="al-sms-on"><option value="0">ปิด</option><option value="1">เปิด</option></select></label>
+          <label class="field"><span>ส่งเมื่อ</span><select id="al-sms-level"></select></label>
+          <label class="field wide"><span>เบอร์มือถือ (บรรทัดละ 1 เบอร์ ไม่เกิน 10 เบอร์)</span><textarea id="al-phones" rows="3" placeholder="0812345678"></textarea></label>
+          <p class="cap-hint wide" id="al-sms-state"></p>
+        </fieldset>
+        <div class="actions">
+          <button type="button" id="al-save">บันทึกการตั้งค่า</button>
+          <button type="button" class="ghost" id="al-test-sms">ส่ง SMS ทดสอบ</button>
+          <span class="msg" id="al-msg"></span>
+        </div>
+      </div>
+      <h3>EPO / Medication during HD</h3>
+      <table class="rows" id="medications"></table>
+      <div class="confirm-box" id="confirm-box">
+        <div class="vitals-head">
+          <h3>ยืนยันข้อมูลทั้งหมด</h3>
+          <span id="confirm-state" class="confirm-state"></span>
+        </div>
+        <p class="cap-hint">ระบบจะตรวจทุกส่วนของแบบฟอร์มอย่างละเอียด แสดงตัวอย่างไฟล์ PDF ให้ดูก่อน แล้วจึงบันทึกลงโฟลเดอร์ <b id="confirm-folder">-</b></p>
+        <div class="actions">
+          <button type="button" id="confirm-check">✅ ยืนยันข้อมูลทั้งหมด</button>
+          <span id="confirm-msg"></span>
+        </div>
+        <div id="confirm-result" hidden>
+          <p class="check-summary" id="confirm-summary"></p>
+          <ul class="check-list check-error" id="confirm-errors"></ul>
+          <ul class="check-list check-warn" id="confirm-warnings"></ul>
+          <div id="confirm-go" hidden>
+            <div class="pdf-preview">
+              <div class="actions">
+                <b>ตัวอย่างไฟล์ PDF</b>
+                <span id="pdf-info" class="cap-hint"></span>
+                <button type="button" id="pdf-open" class="ghost">เปิด PDF</button>
+              </div>
+              <div id="pdf-pages" class="pdf-pages"></div>
+            </div>
+            <p>จะบันทึกที่: <b id="confirm-target">-</b> <button type="button" id="confirm-change" class="ghost">เปลี่ยนที่เก็บ</button></p>
+            <ul class="cap-hint" id="confirm-files"></ul>
+            <label class="check-ack" id="confirm-ack-wrap"><input type="checkbox" id="confirm-ack"> ตรวจข้อควรตรวจทุกข้อแล้ว ข้อมูลถูกต้อง</label>
+            <div class="actions">
+              <input id="confirm-reason" placeholder="หมายเหตุการยืนยัน (ถ้ามี)">
+              <button type="button" id="confirm-save">💾 บันทึกลงโฟลเดอร์</button>
+              <button type="button" id="confirm-cancel" class="ghost">ยกเลิก</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <h3>ประวัติการแก้ไข (Audit log)</h3>
+      <table>
+        <thead><tr><th>เวลา</th><th>การกระทำ</th><th>ส่วน</th><th>ผู้แก้ไข</th><th>ฟิลด์ที่เปลี่ยน</th><th>เหตุผล</th></tr></thead>
+        <tbody id="audit"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <main id="view-schedule" hidden>
+    <section class="panel">
+      <div class="toolbar">
+        <h2>ตารางฟอกล่วงหน้า</h2>
+        <div class="seg" role="group" aria-label="มุมมอง">
+          <button type="button" class="ghost" data-mode="day">วัน</button>
+          <button type="button" class="ghost" data-mode="week">สัปดาห์</button>
+          <button type="button" class="ghost" data-mode="month">เดือน</button>
+        </div>
+        <span class="date-nav">
+          <button type="button" class="ghost" id="s-prev" aria-label="ก่อนหน้า">‹</button>
+          <button type="button" class="ghost" id="s-today">วันนี้</button>
+          <button type="button" class="ghost" id="s-next" aria-label="ถัดไป">›</button>
+        </span>
+        <b id="s-range"></b>
+        <button type="button" id="s-add">นัดผู้ป่วย</button>
+        <button type="button" id="s-auto">✨ จัดนัดให้</button>
+        <button type="button" class="ghost" id="s-settings-toggle">ตั้งค่ารอบ</button>
+      </div>
+
+      <div class="subpanel" id="s-auto-panel" hidden>
+        <h3>✨ จัดนัดให้ตามรอบและวันประจำ</h3>
+        <p class="cap-hint">ระบบเสนอนัดให้ผู้ป่วยทุกคนตามรอบและวันที่มาฟอกประจำ ให้เตียงเดิมที่ใช้บ่อยก่อน ข้ามคนที่มีนัดแล้ว ตรวจรายการแล้วเอาเครื่องหมายออกถ้าไม่ต้องการ จากนั้นกดบันทึกครั้งเดียว (คำนวณในระบบเอง ไม่ส่งข้อมูลออกภายนอก)</p>
+        <div class="actions">
+          <label class="field"><span>ตั้งแต่วันที่</span><input type="date" id="s-auto-from"></label>
+          <label class="field"><span>ถึงวันที่</span><input type="date" id="s-auto-to"></label>
+          <button type="button" id="s-auto-run">จัดนัด</button>
+          <button type="button" class="ghost" id="s-auto-close">ปิด</button>
+          <span class="msg" id="s-auto-msg"></span>
+        </div>
+        <div id="s-auto-result" hidden>
+          <p class="check-summary" id="s-auto-summary"></p>
+          <ul class="check-list check-warn" id="s-auto-problems"></ul>
+          <div class="table-scroll auto-scroll"><table>
+            <thead><tr><th><input type="checkbox" id="s-auto-all" checked aria-label="เลือกทั้งหมด"></th><th>วันที่</th><th>รอบ</th><th>เตียง</th><th>HN</th><th>ชื่อ-สกุล</th></tr></thead>
+            <tbody id="s-auto-rows"></tbody>
+          </table></div>
+          <div class="actions">
+            <button type="button" id="s-auto-save">บันทึกนัดที่เลือก</button>
+            <span class="msg" id="s-auto-save-msg"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="subpanel" id="s-settings" hidden>
+        <h3>ตั้งค่ารอบฟอก</h3>
+        <p class="sc-legend">ตัวเลขรายวัน = ผู้ป่วยประจำ / เตียงที่รับได้:
+          <span><i class="sc-day"></i>ยังว่าง</span><span><i class="sc-day full"></i>เต็มพอดี</span><span><i class="sc-day over"></i>เกินจำนวนเตียง</span><span><i class="sc-day zero"></i>ไม่มีผู้ป่วยประจำ</span></p>
+        <div class="shift-settings" id="s-shift-rows"></div>
+        <div class="actions">
+          <button type="button" id="s-settings-save">บันทึกการตั้งค่า</button>
+          <span class="msg" id="s-settings-msg"></span>
+        </div>
+      </div>
+
+      <form class="subpanel" id="s-form" hidden>
+        <h3>นัดผู้ป่วยฟอกเลือด</h3>
+        <div class="s-form-grid">
+          <label class="field wide"><span>ผู้ป่วย (พิมพ์ HN หรือชื่อเพื่อค้นหา)</span>
+            <input id="s-patient-q" type="search" autocomplete="off" placeholder="เช่น MOCK-00012 หรือ สมชาย">
+            <div class="picker" id="s-patient-results"></div>
+          </label>
+          <div class="field wide" id="s-patient-chosen"></div>
+          <label class="field"><span>วันที่เริ่ม</span><input id="s-date" type="date" required></label>
+          <label class="field"><span>รอบ</span><select id="s-shift"></select></label>
+          <label class="field"><span>เตียง (ว่างไว้ให้ระบบเลือก)</span><input id="s-bed" type="number" min="1" max="30"></label>
+          <label class="field"><span>นัดซ้ำ</span>
+            <select id="s-repeat"><option value="none">ไม่ซ้ำ</option><option value="weekly">ทุกสัปดาห์ ตามวันที่เลือก</option></select></label>
+          <div class="field wide" id="s-repeat-box" hidden>
+            <span>วันในสัปดาห์</span>
+            <div class="checks weekdays" id="s-weekdays"></div>
+            <label class="field"><span>นัดถึงวันที่</span><input id="s-until" type="date"></label>
+          </div>
+          <label class="field wide"><span>หมายเหตุ</span><input id="s-note"></label>
+        </div>
+        <div class="actions">
+          <button type="submit" id="s-save">บันทึกนัด</button>
+          <button type="button" class="ghost" id="s-cancel">ยกเลิก</button>
+          <span class="msg" id="s-msg"></span>
+        </div>
+        <ul class="conflicts" id="s-conflicts"></ul>
+      </form>
+
+      <div id="s-board"></div>
+    </section>
+
+    <section class="panel" id="pd" hidden>
+      <div class="toolbar">
+        <h2 id="pd-title">ข้อมูลผู้ป่วย</h2>
+        <button type="button" class="ghost" id="pd-open">เปิดในหน้าผู้ป่วยทั้งหมด</button>
+        <button type="button" class="ghost" id="pd-close">ปิด</button>
+      </div>
+      <div class="pd-head">
+        <div class="photo" id="pd-photo"></div>
+        <dl class="pd-facts" id="pd-facts"></dl>
+      </div>
+      <div class="pd-entry" id="pd-entry"></div>
+      <form class="subpanel pa" id="pa" hidden>
+        <div class="vitals-head">
+          <h3>ซักประวัติเบื้องต้น</h3>
+          <span id="pa-state" class="cap-hint"></span>
+        </div>
+        <div class="pa-scale" id="pa-scale">
+          <button type="button" class="ghost" id="pa-scale-btn">📷 ถ่ายรูปตาชั่ง</button>
+          <input type="file" id="pa-scale-file" accept="image/*" capture="environment" hidden>
+          <span class="cap-hint" id="pa-scale-msg">ถ่ายให้เห็นตัวเลขบนตาชั่งชัด ระบบอ่านสองรอบ เติม Pre weight เฉพาะเมื่อตรงกัน พยาบาลตรวจก่อนบันทึก ภาพไม่ถูกเก็บ</span>
+        </div>
+        <div class="pa-voice" id="pa-voice">
+          <div class="pa-voice-row">
+            <button type="button" class="ghost" id="pa-mic">🎤 พูด</button>
+            <textarea id="pa-voice-text" rows="2" placeholder="พูดหรือพิมพ์ เช่น ขาบวม คัน ไม่มีไข้ น้ำหนัก 62.4"></textarea>
+            <button type="button" class="ghost" id="pa-voice-apply">ใส่ลงฟอร์ม</button>
+          </div>
+          <span class="cap-hint" id="pa-voice-msg">ระบบติ๊กอาการ เติมน้ำหนัก และใส่ข้อความใน Nurse note ให้ พยาบาลตรวจก่อนกดบันทึก</span>
+        </div>
+        <div id="pa-fields"></div>
+        <p class="cap-hint">ค่าที่บันทึกที่นี่เป็นค่าเดียวกับใน Hemodialysis sheet ของนัดนี้ แก้ที่หน้าใดก็เปลี่ยนทั้งสองหน้า</p>
+        <div class="actions">
+          <input id="pa-reason" placeholder="เหตุผลที่แก้ไข (ถ้ามี)">
+          <button type="submit" id="pa-save">บันทึกการซักประวัติ</button>
+          <button type="button" class="ghost" id="pa-sheet" hidden>เปิด Hemodialysis sheet</button>
+          <span class="msg" id="pa-msg"></span>
+        </div>
+      </form>
+      <div class="pd-cols">
+        <div><h3>นัดฟอกที่จะถึง</h3><ul class="pd-list" id="pd-upcoming"></ul></div>
+        <div><h3>การฟอกล่าสุด</h3><ul class="pd-list" id="pd-recent"></ul></div>
+        <div><h3>ไฟล์แนบ</h3><ul class="pd-list" id="pd-files"></ul></div>
+      </div>
+    </section>
+  </main>
+
+  <main id="view-consult" hidden>
+    <section class="panel">
+      <div class="toolbar">
+        <h2>ปรึกษาแพทย์</h2>
+        <label class="inline">วันที่ฟอก <input type="date" id="cs-date"></label>
+        <select id="cs-status" aria-label="สถานะ"><option value="open">รอคำสั่งแพทย์</option><option value="all" selected>ทั้งหมด</option><option value="answered">ได้รับคำสั่งแล้ว</option></select>
+        <button type="button" id="cs-new">＋ ปรึกษาใหม่</button>
+      </div>
+      <p class="msg" id="cs-open-all"></p>
+      <div id="cs-list"></div>
+    </section>
+
+    <section class="panel consult" id="cs" hidden>
+      <div class="toolbar">
+        <h2>ปรึกษาแพทย์ใหม่</h2>
+        <button type="button" class="ghost" id="cs-close">ปิด</button>
+      </div>
+      <label class="field wide"><span>ผู้ป่วยที่ฟอกวันที่เลือก</span><select id="cs-session"></select></label>
+      <div id="cs-form" hidden>
+        <div class="vitals-head">
+          <span class="cap-hint" id="cs-patient"></span>
+          <label class="inline">ความเร่งด่วน <select id="cs-urgency"></select></label>
+        </div>
+        <p class="cap-hint">ระบบรวบรวมภาวะที่อาจเป็นอันตรายจาก Hemodialysis sheet ของผู้ป่วยให้ เลือกสิ่งที่จะรายงาน เพิ่มสิ่งที่พบจากการตรวจ แล้วระบบเรียบเรียงเป็นรายงานแบบ SBAR ให้แก้ก่อนบันทึก</p>
+        <h4>ภาวะที่ระบบพบ</h4>
+        <div class="checks" id="cs-findings"></div>
+        <label class="field wide"><span>สิ่งที่พบเพิ่มเติมจากการตรวจ (บรรทัดละ 1 เรื่อง)</span><textarea id="cs-extra" rows="2" placeholder="เช่น แผลบวมแดงขนาด 2 ซม. ใกล้ตำแหน่งแทงเข็ม venous กดเจ็บ"></textarea></label>
+        <h4>รูปแนบ</h4>
+        <div class="cs-photo-bar">
+          <button type="button" class="ghost" id="cs-photo-btn">📷 ถ่าย / แนบรูป</button>
+          <input type="file" id="cs-photo-file" accept="image/*" multiple hidden>
+          <button type="button" class="ghost" id="cs-ai" hidden>🤖 ให้ AI ช่วยดูรูป</button>
+          <span class="cap-hint" id="cs-photo-msg">ถ่ายเฉพาะบริเวณที่ผิดปกติ เช่น ตำแหน่งแทงเข็ม ไม่ให้เห็นหน้าหรือชื่อผู้ป่วย</span>
+        </div>
+        <div class="cs-thumbs" id="cs-thumbs"></div>
+        <div class="cs-ai-box" id="cs-ai-box" hidden>
+          <div id="cs-ai-result"></div>
+          <label class="check"><input type="checkbox" id="cs-ai-include" checked> ใส่ข้อสังเกตจาก AI ลงในรายงานแพทย์</label>
+        </div>
+        <h4>เรื่องที่ปรึกษา</h4>
+        <div class="checks" id="cs-topics"></div>
+        <input id="cs-other" placeholder="เรื่องอื่น ๆ (ถ้าเลือก อื่น ๆ)" hidden>
+        <h4>สิ่งที่ขอจากแพทย์</h4>
+        <div class="checks" id="cs-requests"></div>
+        <input id="cs-request-note" placeholder="ขอเพิ่มเติม (ถ้ามี)">
+        <h4>รายงานแพทย์ (แก้ได้)</h4>
+        <textarea id="cs-report" rows="12"></textarea>
+        <div class="actions">
+          <button type="button" id="cs-save">บันทึกการปรึกษา</button>
+          <button type="button" class="ghost" id="cs-copy">คัดลอกข้อความ</button>
+          <button type="button" class="ghost" id="cs-print">พิมพ์</button>
+          <button type="button" class="ghost" id="cs-reset">สร้างรายงานใหม่จากแบบฟอร์ม</button>
+        </div>
+      </div>
+      <span class="msg" id="cs-msg"></span>
+    </section>
+  </main>
+
+  <main id="view-patients" hidden>
+    <section class="panel">
+      <div class="toolbar">
+        <h2>ผู้ป่วยทั้งหมด</h2>
+        <input type="search" id="p-search" placeholder="ค้นหา HN หรือชื่อผู้ป่วย" aria-label="ค้นหาผู้ป่วย">
+        <button type="button" id="p-new">เพิ่มผู้ป่วย</button>
+      </div>
+      <table>
+        <thead><tr><th></th><th>HN</th><th>ชื่อ-สกุล</th><th>อายุ</th><th>เพศ</th><th>รอบฟอก</th><th>Access</th><th>สิทธิ</th></tr></thead>
+        <tbody id="p-list"></tbody>
+      </table>
+      <div class="pager">
+        <label class="per-page">แสดง
+          <select id="p-page-size"><option>10</option><option selected>25</option><option>50</option><option>100</option></select>
+          รายการ</label>
+        <span id="p-page-info"></span>
+        <span class="pager-buttons">
+          <button type="button" class="ghost" id="p-prev">ก่อนหน้า</button>
+          <button type="button" class="ghost" id="p-next">ถัดไป</button>
+        </span>
+      </div>
+    </section>
+
+    <section class="panel" id="p-detail" hidden>
+      <div class="toolbar">
+        <h2 id="p-title">ข้อมูลผู้ป่วย</h2>
+        <button type="button" id="p-close" class="ghost">ปิด</button>
+      </div>
+      <div class="p-head">
+        <div class="photo-box">
+          <div class="photo" id="p-photo"></div>
+          <label class="file-button ghost" id="p-photo-label">เปลี่ยนรูป
+            <input type="file" id="p-photo-input" accept=".jpg,.jpeg,image/jpeg"></label>
+        </div>
+        <form id="p-form" class="p-form"></form>
+      </div>
+      <fieldset class="p-shift">
+        <legend>รอบฟอกประจำ (ต้องเลือกก่อนบันทึก)</legend>
+        <form id="p-shift-form" class="p-shift-form"></form>
+      </fieldset>
+      <div class="actions">
+        <input id="p-reason" placeholder="เหตุผลที่แก้ไข (ถ้ามี)">
+        <button type="button" id="p-save">บันทึกข้อมูลผู้ป่วย</button>
+        <button type="button" id="p-delete" class="ghost danger">ลบผู้ป่วย</button>
+        <span id="p-msg"></span>
+      </div>
+      <div id="p-delete-confirm" class="confirm" hidden>
+        <span>ลบผู้ป่วยรายนี้ออกจากรายชื่อ? ข้อมูลทั้งหมดจะย้ายไปอยู่ใน "ข้อมูลผู้ป่วยเก่า" และนัดที่ยังไม่ถึงจะถูกยกเลิก</span>
+        <button type="button" id="p-delete-yes" class="danger-solid">ยืนยันลบ</button>
+        <button type="button" id="p-delete-no" class="ghost">ยกเลิก</button>
+      </div>
+      <div id="p-extra">
+        <h3>ไฟล์แนบ (.jpg, .pdf ไม่เกิน 10 MB)</h3>
+        <label class="file-button">เพิ่มไฟล์
+          <input type="file" id="p-file-input" accept=".jpg,.jpeg,.pdf,image/jpeg,application/pdf" multiple></label>
+        <table>
+          <thead><tr><th>ชื่อไฟล์</th><th>ชนิด</th><th>ขนาด</th><th>ผู้เพิ่ม</th><th>วันที่</th><th></th></tr></thead>
+          <tbody id="p-files"></tbody>
+        </table>
+        <div class="viewer" id="p-viewer" hidden>
+          <div class="toolbar"><b id="p-viewer-name"></b><button type="button" class="ghost" id="p-viewer-close">ปิด</button></div>
+          <img id="p-viewer-img" alt="">
+        </div>
+        <h3>ประวัติการแก้ไข (Audit log)</h3>
+        <table>
+          <thead><tr><th>เวลา</th><th>การกระทำ</th><th>ส่วน</th><th>ผู้แก้ไข</th><th>ฟิลด์ที่เปลี่ยน</th><th>เหตุผล</th></tr></thead>
+          <tbody id="p-audit"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <main id="view-archive" hidden>
+    <section class="panel">
+      <div class="toolbar">
+        <h2>ข้อมูลผู้ป่วยเก่า</h2>
+        <input type="search" id="a-search" placeholder="ค้นหา HN หรือชื่อผู้ป่วย" aria-label="ค้นหาผู้ป่วยเก่า">
+      </div>
+      <p class="msg">ผู้ป่วยที่ลบออกจากรายชื่อผู้ป่วยทั้งหมด ข้อมูล ประวัติการฟอก ไฟล์ และประวัติการแก้ไขยังอยู่ครบ ดูได้อย่างเดียว ถ้าจะแก้ไขให้นำกลับเป็นผู้ป่วยปัจจุบันก่อน</p>
+      <table>
+        <thead><tr><th>HN</th><th>ชื่อ-สกุล</th><th>อายุ</th><th>เพศ</th><th>รอบฟอกเดิม</th><th>วันที่ย้ายมา</th><th>เหตุผล</th></tr></thead>
+        <tbody id="a-list"></tbody>
+      </table>
+      <div class="pager">
+        <label class="per-page">แสดง
+          <select id="a-page-size"><option>10</option><option selected>25</option><option>50</option><option>100</option></select>
+          รายการ</label>
+        <span id="a-page-info"></span>
+        <span class="pager-buttons">
+          <button type="button" class="ghost" id="a-prev">ก่อนหน้า</button>
+          <button type="button" class="ghost" id="a-next">ถัดไป</button>
+        </span>
+      </div>
+    </section>
+
+    <section class="panel" id="a-detail" hidden>
+      <div class="toolbar">
+        <h2 id="a-title">ข้อมูลผู้ป่วยเก่า</h2>
+        <button type="button" class="ghost" id="a-close">ปิด</button>
+      </div>
+      <div class="archived-note" id="a-note"></div>
+      <div class="pd-head">
+        <div class="photo" id="a-photo"></div>
+        <dl class="pd-facts" id="a-facts"></dl>
+      </div>
+      <h3>ประวัติการฟอกเลือด</h3>
+      <table>
+        <thead><tr><th>วันที่</th><th>ครั้งที่</th><th>รอบ</th><th>เตียง</th><th>นน. ก่อน/หลัง</th><th>UF (ml)</th><th>สถานะ</th></tr></thead>
+        <tbody id="a-sessions"></tbody>
+      </table>
+      <h3>ไฟล์แนบ</h3>
+      <table>
+        <thead><tr><th>ชื่อไฟล์</th><th>ชนิด</th><th>ขนาด</th><th>ผู้เพิ่ม</th><th>วันที่</th></tr></thead>
+        <tbody id="a-files"></tbody>
+      </table>
+      <div class="viewer" id="a-viewer" hidden>
+        <div class="toolbar"><b id="a-viewer-name"></b><button type="button" class="ghost" id="a-viewer-close">ปิด</button></div>
+        <img id="a-viewer-img" alt="">
+      </div>
+      <h3>ประวัติการแก้ไข (Audit log)</h3>
+      <table>
+        <thead><tr><th>เวลา</th><th>การกระทำ</th><th>ส่วน</th><th>ผู้แก้ไข</th><th>ฟิลด์ที่เปลี่ยน</th><th>เหตุผล</th></tr></thead>
+        <tbody id="a-audit"></tbody>
+      </table>
+      <div class="actions">
+        <input id="a-reason" placeholder="เหตุผลที่นำกลับ (ถ้ามี)">
+        <button type="button" id="a-restore">นำกลับเป็นผู้ป่วยปัจจุบัน</button>
+        <span id="a-msg"></span>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="app.js"></script>
+  <script type="module" src="patients.js"></script>
+  <script type="module" src="schedule.js"></script>
+  <script type="module" src="archive.js"></script>
+  <script type="module" src="consults.js"></script>
+</body>
+</html>
