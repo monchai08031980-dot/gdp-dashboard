@@ -4,6 +4,7 @@ import { hdAlerts } from './hdAlerts.js';
 import { DEFAULT_ALERT_SETTINGS, TONES, LEVELS, meets, normalizeAlertSettings } from './alertSettings.js';
 import { playAlert } from './alertSound.js';
 import { parseHdSpoken } from './voiceNote.js';
+import { consultFindings, buildSbar, CONSULT_TOPICS, CONSULT_REQUESTS, URGENCY } from './consult.js';
 import { speechSupported, toggleDictation, stopDictation } from './speech.js';
 import { buildPdf519 } from './pdf519.js';
 import { getSaveMode, setSaveMode, canPickFolder, savedFolder, pickFolder, writeToFolder, makeZip, downloadFile } from './localSave.js';
@@ -15,6 +16,7 @@ const STATUS = Object.fromEntries(SECTIONS[0].fields.find((f) => f.name === 'sta
 const ACCESS_SIDE = { LT: 'Lt', RT: 'Rt' };
 
 let current = null;
+let currentPatient = null;
 const listState = { page: 1 };
 
 async function loadSessions() {
@@ -59,6 +61,7 @@ document.addEventListener('open-session', async (e) => {
 async function openSession(id) {
   current = await api('/sessions/' + id);
   const patient = await api('/patients/' + current.patient_id);
+  currentPatient = patient;
   $('detail').hidden = false;
   $('detail-title').textContent = 'Hemodialysis sheet (แบบฟอร์ม 519)';
   $('patient').innerHTML = `
@@ -74,6 +77,8 @@ async function openSession(id) {
   if (hdVoiceFor !== current.id) { stopDictation($('hd-mic')); $('hd-voice-text').value = ''; hdSay(HD_VOICE_HINT); hdVoiceFor = current.id; }
   showHdAlerts();
   soundForNewAlerts();
+  if ($('cs').dataset.session !== current.id) { $('cs').hidden = true; $('cs').dataset.session = current.id; }
+  renderConsultHistory();
   if (!$('cap').hidden && $('cap').dataset.session !== current.id) closeCapture();
   renderRows('medications', MEDICATION_FIELDS, current.medications);
   resetConfirm();
@@ -238,6 +243,119 @@ function applyHdVoice() {
   hdSay(parts.length ? `${parts.join(' · ')} กรุณาตรวจช่องสีฟ้า แล้วกด "บันทึกแบบฟอร์ม"` : 'ไม่พบรายการหรือค่าในข้อความ', !parts.length);
   $('hd-voice-text').value = '';
 }
+
+// ---------------------------------------------------------------------------
+// ปรึกษาแพทย์: รวบรวมภาวะอันตรายจากแบบฟอร์ม (รวมช่องที่แก้แต่ยังไม่บันทึก) เรียบเรียงรายงาน SBAR ให้พยาบาลแก้ แล้วบันทึก
+// ---------------------------------------------------------------------------
+const formSession = () => ({ ...current, ...Object.fromEntries(SECTIONS.flatMap((x) => x.fields).map((f) => [f.name, readField($('form'), f)])) });
+const csSay = (t) => { $('cs-msg').textContent = t; };
+let csEdited = false;
+const checks = (id, list, picked = [], cls = () => '') => {
+  $(id).innerHTML = list.map(([k, l]) => `<label class="check ${cls(k)}"><input type="checkbox" value="${esc(k)}" ${picked.includes(k) ? 'checked' : ''}>${esc(l)}</label>`).join('');
+};
+const picked = (id) => [...$(id).querySelectorAll('input:checked')].map((el) => el.value);
+
+function openConsult() {
+  const s = formSession();
+  const findings = consultFindings(s, current.vitals);
+  $('cs-urgency').innerHTML = Object.entries(URGENCY).map(([k, l]) => `<option value="${k}" ${k === (findings.some((f) => f.level === 'danger') ? 'STAT' : 'URGENT') ? 'selected' : ''}>${l}</option>`).join('');
+  checks('cs-findings', findings.map((f) => [f.key, `${f.level === 'danger' ? '⚠️ ' : ''}${f.text}`]), findings.filter((f) => f.level === 'danger').map((f) => f.key),
+    (k) => (findings.find((f) => f.key === k)?.level === 'danger' ? 'danger' : ''));
+  if (!findings.length) $('cs-findings').innerHTML = '<span class="cap-hint">ระบบไม่พบภาวะผิดปกติในแบบฟอร์ม ใส่สิ่งที่พบจากการตรวจด้านล่างได้</span>';
+  $('cs-findings').dataset.list = JSON.stringify(findings);
+  checks('cs-topics', CONSULT_TOPICS, [...new Set(findings.filter((f) => f.level === 'danger' && f.topic).map((f) => f.topic))]);
+  checks('cs-requests', CONSULT_REQUESTS, ['order']);
+  $('cs-extra').value = '';
+  $('cs-other').value = '';
+  $('cs-request-note').value = '';
+  $('cs-other').hidden = true;
+  csEdited = false;
+  makeReport();
+  csSay('');
+}
+function consultPick() {
+  const findings = JSON.parse($('cs-findings').dataset.list || '[]');
+  const chosen = picked('cs-findings').map((k) => findings.find((f) => f.key === k)?.text).filter(Boolean);
+  const extra = $('cs-extra').value.split('\n').map((t) => t.trim()).filter(Boolean);
+  return {
+    topics: picked('cs-topics'), other: $('cs-other').value.trim(), findings: [...chosen, ...extra],
+    requests: picked('cs-requests'), request_note: $('cs-request-note').value.trim(), urgency: $('cs-urgency').value,
+    reporter: ROLE_LABEL(),
+  };
+}
+const ROLE_LABEL = () => $('user-role').selectedOptions?.[0]?.textContent?.trim() || '';
+function makeReport() {
+  $('cs-report').value = buildSbar(formSession(), current.vitals, currentPatient, consultPick());
+}
+$('cs-toggle').addEventListener('click', () => {
+  $('cs').hidden = !$('cs').hidden;
+  if (!$('cs').hidden) { openConsult(); $('cs').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+});
+// เลือกหรือแก้ตัวเลือก รายงานสร้างใหม่ให้ ยกเว้นพยาบาลแก้ข้อความรายงานเองแล้ว
+$('cs').addEventListener('input', (e) => {
+  if (e.target.id === 'cs-report') { csEdited = true; return; }
+  if (e.target.closest('#cs-topics')) $('cs-other').hidden = !picked('cs-topics').includes('other');
+  if (!csEdited) makeReport();
+  else csSay('แก้ข้อความรายงานเองแล้ว ตัวเลือกที่เปลี่ยนจะไม่ถูกใส่ให้ กด "สร้างรายงานใหม่จากแบบฟอร์ม" ถ้าต้องการ');
+});
+$('cs-reset').addEventListener('click', () => { csEdited = false; makeReport(); csSay(''); });
+$('cs-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('cs-report').value); csSay('คัดลอกแล้ว นำไปวางในไลน์กลุ่มหรือระบบของโรงพยาบาลได้'); }
+  catch { $('cs-report').select(); csSay('คัดลอกอัตโนมัติไม่ได้ เลือกข้อความไว้แล้ว กด Ctrl+C'); }
+});
+$('cs-print').addEventListener('click', () => {
+  const w = window.open('', '_blank', 'width=700,height=800');
+  if (!w) { csSay('เบราว์เซอร์บล็อกหน้าต่างพิมพ์'); return; }
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>รายงานแพทย์</title><body style="font-family:Sarabun,sans-serif;white-space:pre-wrap;font-size:16px;padding:24px">${esc($('cs-report').value)}</body>`);
+  w.document.close();
+  w.focus();
+  w.print();
+});
+$('cs-save').addEventListener('click', async () => {
+  if (needUser('cs-msg')) return;
+  const pick = consultPick();
+  if (!pick.topics.length) { csSay('กรุณาเลือกเรื่องที่ปรึกษาอย่างน้อย 1 เรื่อง'); return; }
+  if (pick.topics.includes('other') && !pick.other) { csSay('กรุณาระบุเรื่องอื่น ๆ'); $('cs-other').focus(); return; }
+  $('cs-save').disabled = true;
+  const keep = formChanges();
+  try {
+    await api(`/sessions/${current.id}/consults`, { method: 'POST', body: JSON.stringify({ ...pick, report: $('cs-report').value }) }, 'cs-no-reason');
+    await openSession(current.id);
+    const still = restoreForm(keep);
+    $('cs').hidden = false;
+    csSay(`บันทึกการปรึกษาแล้ว ติ๊ก Notified Doctor ให้แล้ว${still ? ` · แบบฟอร์มยังมี ${still} ช่องที่ยังไม่ได้บันทึก` : ''} เมื่อได้รับคำสั่งแพทย์ บันทึกในประวัติด้านล่าง`);
+  } catch (err) { csSay('บันทึกไม่สำเร็จ: ' + err.message); }
+  finally { $('cs-save').disabled = false; }
+});
+
+function renderConsultHistory() {
+  const list = current.consults || [];
+  $('cs-toggle').textContent = list.some((c) => !c.answered_at) ? '🩺 ปรึกษาแพทย์ (รอคำสั่ง)' : '🩺 ปรึกษาแพทย์';
+  $('cs-history').innerHTML = list.length ? list.slice().reverse().map((c) => `
+    <div class="cs-item" data-id="${c.id}">
+      <b>${fmtTime(c.created_at)} · ${esc(URGENCY[c.urgency])}</b> · ${esc(c.reported_by)} · ${esc(c.topics.map((k) => CONSULT_TOPICS.find(([x]) => x === k)?.[1] || k).join(', '))}
+      <details><summary>ดูรายงาน</summary><pre>${esc(c.report)}</pre></details>
+      ${c.answered_at ? `<div class="answered"><b>คำสั่งแพทย์</b> (${esc(c.doctor_name)} · ${fmtTime(c.answered_at)})<pre>${esc(c.doctor_order)}</pre></div>` : `
+      <div class="cs-order"><input name="doctor_name" placeholder="ชื่อแพทย์"><textarea name="doctor_order" rows="2" placeholder="คำสั่งแพทย์ที่ได้รับ"></textarea>
+      <button type="button" class="ghost" data-act="order">บันทึกคำสั่งแพทย์</button></div><span class="msg"></span>`}
+    </div>`).join('') : '<p class="cap-hint">ยังไม่มีการปรึกษา</p>';
+}
+$('cs-history').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-act=order]');
+  if (!btn) return;
+  const item = btn.closest('.cs-item');
+  const msg = item.querySelector('.msg');
+  if (needUser('cs-msg')) return;
+  const body = { doctor_name: item.querySelector('[name=doctor_name]').value, doctor_order: item.querySelector('[name=doctor_order]').value };
+  if (!body.doctor_name.trim() || !body.doctor_order.trim()) { msg.textContent = 'กรุณากรอกชื่อแพทย์และคำสั่งแพทย์'; return; }
+  try {
+    await api(`/sessions/${current.id}/consults/${item.dataset.id}`, { method: 'PATCH', body: JSON.stringify(body) }, 'cs-no-reason');
+    const keep = formChanges();
+    await openSession(current.id);
+    restoreForm(keep);
+    $('cs').hidden = false;
+  } catch (err) { msg.textContent = 'บันทึกไม่สำเร็จ: ' + err.message; }
+});
 
 async function loadAudit() {
   const rows = await api(`/audit?session_id=${current.id}`);

@@ -256,3 +256,15 @@ table.rows input.alert-danger { border-color: var(--warn-text); background: colo
 .al-settings input[type=range] { width: 100%; }
 .hd-alerts li.sms { list-style: none; margin-left: -16px; font-weight: 400; }
 table.rows input.from-voice, #form input.from-voice, #form textarea.from-voice { border-color: var(--accent); background: var(--accent-soft); }
+.consult h4 { margin: 12px 0 6px; font-size: 14px; }
+.consult .checks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.consult .checks label.danger { color: var(--warn-text); font-weight: 600; }
+.consult textarea, .consult input:not([type=checkbox]) { width: 100%; box-sizing: border-box; font: inherit; }
+.consult #cs-report { font-family: inherit; line-height: 1.5; }
+.consult label.inline { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; white-space: nowrap; }
+.consult > label.field { display: block; margin-top: 10px; }
+.cs-item { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; }
+.cs-item pre { white-space: pre-wrap; font: inherit; margin: 6px 0; }
+.cs-item .cs-order { display: grid; grid-template-columns: minmax(140px, 220px) 1fr auto; gap: 6px; align-items: start; }
+.cs-item .answered { background: var(--accent-soft); border-radius: 6px; padding: 6px 8px; }
+@media (max-width: 600px) { .cs-item .cs-order { grid-template-columns: 1fr; } }

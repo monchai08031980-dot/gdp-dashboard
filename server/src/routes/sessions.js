@@ -5,6 +5,7 @@ import { readMachineScreen, imageType } from '../screenReader.js';
 import { loadSession, latestExport, prepareExport, confirmSession } from '../dataExport.js';
 import { checkSession } from '../../public/sessionCheck.js';
 import { notifyVital, sessionNotifications } from '../alertNotify.js';
+import { CONSULT_TOPICS, CONSULT_REQUESTS, URGENCY } from '../../public/consult.js';
 import { SESSION_COLUMNS, VITAL_FIELDS, MEDICATION_FIELDS } from '../../public/form519.js';
 
 const VITAL_COLUMNS = VITAL_FIELDS.map((f) => f.name);
@@ -41,7 +42,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const data = await loadSession(req.params.id);
   if (!data) return res.status(404).json({ error: 'ไม่พบรอบการฟอก' });
-  res.json({ ...data.session, vitals: data.vitals, medications: data.medications, export: await latestExport(req.params.id), notifications: await sessionNotifications(req.params.id) });
+  res.json({ ...data.session, vitals: data.vitals, medications: data.medications, export: await latestExport(req.params.id), notifications: await sessionNotifications(req.params.id), consults: await sessionConsults(req.params.id) });
 });
 
 // ตรวจแบบฟอร์มทั้งชุดก่อนยืนยัน (ยังไม่บันทึกอะไร)
@@ -97,6 +98,50 @@ router.post(
     res.json(await readMachineScreen(req.body, type));
   },
 );
+
+// ปรึกษาแพทย์: บันทึกรายงาน SBAR ที่พยาบาลตรวจแล้ว และติ๊ก Notified Doctor ในแบบฟอร์มให้ในคราวเดียวกัน
+const sessionConsults = async (id) => (await pool.query('SELECT * FROM doctor_consults WHERE session_id = $1 ORDER BY created_at', [id])).rows;
+const keys = (list, allowed) => (Array.isArray(list) ? [...new Set(list.filter((k) => allowed.some(([a]) => a === k)))] : []);
+const texts = (list) => (Array.isArray(list) ? list.map((t) => String(t).trim().slice(0, 300)).filter(Boolean).slice(0, 30) : []);
+
+router.post('/:id/consults', async (req, res) => {
+  if (!req.actor) return res.status(400).json({ error: 'กรุณาเลือกตำแหน่งผู้บันทึก' });
+  const b = req.body || {};
+  const report = typeof b.report === 'string' ? b.report.trim() : '';
+  if (!report) return res.status(400).json({ error: 'ยังไม่มีข้อความรายงานแพทย์' });
+  if (report.length > 5000) return res.status(400).json({ error: 'ข้อความรายงานยาวเกินไป' });
+  const topics = keys(b.topics, CONSULT_TOPICS);
+  if (!topics.length) return res.status(400).json({ error: 'กรุณาเลือกเรื่องที่ปรึกษาอย่างน้อย 1 เรื่อง' });
+  const urgency = URGENCY[b.urgency] ? b.urgency : 'URGENT';
+  const row = await withAudit(req.actor, req.reason || 'ปรึกษาแพทย์', async (db) => {
+    const s = (await db.query('SELECT nursing_management FROM dialysis_sessions WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
+    if (!s) return null;
+    if (!(s.nursing_management || []).includes('notified_doctor')) {
+      await db.query("UPDATE dialysis_sessions SET nursing_management = array_append(coalesce(nursing_management, '{}'), 'notified_doctor') WHERE id = $1", [req.params.id]);
+    }
+    return (await db.query(
+      `INSERT INTO doctor_consults (session_id, urgency, topics, findings, requests, report, reported_by, reported_by_role)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [req.params.id, urgency, topics, texts(b.findings), keys(b.requests, CONSULT_REQUESTS), report, req.actor.name, req.actor.role || null],
+    )).rows[0];
+  });
+  if (!row) return res.status(404).json({ error: 'ไม่พบรอบการฟอก' });
+  res.status(201).json(row);
+});
+
+// บันทึกคำสั่งแพทย์ที่ได้รับ (แก้ได้ ทุกครั้งมี audit log)
+router.patch('/:id/consults/:consultId', async (req, res) => {
+  if (!req.actor) return res.status(400).json({ error: 'กรุณาเลือกตำแหน่งผู้บันทึก' });
+  const order = typeof req.body?.doctor_order === 'string' ? req.body.doctor_order.trim() : '';
+  const doctor = typeof req.body?.doctor_name === 'string' ? req.body.doctor_name.trim() : '';
+  if (!order) return res.status(400).json({ error: 'กรุณากรอกคำสั่งแพทย์' });
+  if (!doctor) return res.status(400).json({ error: 'กรุณากรอกชื่อแพทย์' });
+  const row = await withAudit(req.actor, req.reason || 'บันทึกคำสั่งแพทย์', async (db) => (await db.query(
+    `UPDATE doctor_consults SET doctor_name = $1, doctor_order = $2, answered_at = coalesce(answered_at, now())
+     WHERE id = $3 AND session_id = $4 RETURNING *`, [doctor.slice(0, 200), order.slice(0, 5000), req.params.consultId, req.params.id])).rows[0]);
+  if (!row) return res.status(404).json({ error: 'ไม่พบการปรึกษานี้' });
+  res.json(row);
+});
 
 // แถวย่อยของแบบฟอร์ม: บันทึกระหว่างฟอก และยาระหว่างฟอก
 for (const [path, table, columns] of [
