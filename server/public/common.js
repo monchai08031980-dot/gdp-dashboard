@@ -6,7 +6,7 @@ export const ACTION = { INSERT: 'สร้าง', UPDATE: 'แก้ไข', DE
 export const TABLE = {
   dialysis_sessions: 'แบบฟอร์ม', intradialytic_vitals: 'บันทึกระหว่างฟอก', session_medications: 'ยา',
   patients: 'ข้อมูลผู้ป่วย', patient_files: 'ไฟล์',
-  session_exports: 'ยืนยันข้อมูล', app_settings: 'ตั้งค่าระบบ',
+  session_exports: 'ยืนยันข้อมูล', app_settings: 'ตั้งค่าระบบ', alert_notifications: 'แจ้งเตือน SMS',
 };
 
 export const ROLE = { NURSE: 'พยาบาล', NURSE_AIDE: 'ผู้ช่วยพยาบาล', DOCTOR: 'แพทย์', CLERK: 'เสมียน', OTHER: 'อื่นๆ' };

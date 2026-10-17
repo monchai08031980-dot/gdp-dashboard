@@ -126,6 +126,33 @@
       </div>
       <table class="rows" id="vitals"></table>
       <ul class="hd-alerts" id="hd-alerts" hidden></ul>
+      <div class="alert-bar">
+        <button type="button" class="ghost" id="al-toggle">🔔 ตั้งค่าการเตือน</button>
+        <span class="cap-hint" id="al-summary"></span>
+      </div>
+      <div class="subpanel al-settings" id="al" hidden>
+        <h3>ตั้งค่าการเตือนระหว่างฟอก</h3>
+        <p class="cap-hint">ใช้กับทุกเครื่องและทุกรอบฟอก เสียงดังเมื่อบันทึกแถวที่มีค่าผิดปกติ SMS ส่งจากเซิร์ฟเวอร์ ไม่มีชื่อหรือ HN ผู้ป่วย มีเพียงเตียง รอบ เวลา และค่าที่ผิดปกติ ค่าเดิมส่งครั้งเดียว</p>
+        <fieldset><legend>เสียงเตือน</legend>
+          <label class="field"><span>เปิดเสียง</span><select id="al-sound-on"><option value="1">เปิด</option><option value="0">ปิด</option></select></label>
+          <label class="field"><span>ดังเมื่อ</span><select id="al-sound-level"></select></label>
+          <label class="field"><span>เสียงแบบ</span><select id="al-tone"></select></label>
+          <label class="field"><span>ความดัง <b id="al-volume-v"></b></span><input type="range" id="al-volume" min="0" max="100" step="10"></label>
+          <label class="field"><span>ดังกี่ครั้ง</span><input type="number" id="al-repeat" min="1" max="10"></label>
+          <div class="field"><span>&nbsp;</span><button type="button" class="ghost" id="al-play">▶ ทดลองเสียง</button></div>
+        </fieldset>
+        <fieldset><legend>SMS แจ้งเตือน</legend>
+          <label class="field"><span>ส่ง SMS</span><select id="al-sms-on"><option value="0">ปิด</option><option value="1">เปิด</option></select></label>
+          <label class="field"><span>ส่งเมื่อ</span><select id="al-sms-level"></select></label>
+          <label class="field wide"><span>เบอร์มือถือ (บรรทัดละ 1 เบอร์ ไม่เกิน 10 เบอร์)</span><textarea id="al-phones" rows="3" placeholder="0812345678"></textarea></label>
+          <p class="cap-hint wide" id="al-sms-state"></p>
+        </fieldset>
+        <div class="actions">
+          <button type="button" id="al-save">บันทึกการตั้งค่า</button>
+          <button type="button" class="ghost" id="al-test-sms">ส่ง SMS ทดสอบ</button>
+          <span class="msg" id="al-msg"></span>
+        </div>
+      </div>
       <h3>EPO / Medication during HD</h3>
       <table class="rows" id="medications"></table>
       <div class="confirm-box" id="confirm-box">

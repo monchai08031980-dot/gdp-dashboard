@@ -1,6 +1,8 @@
 // หน้าบันทึกการฟอกเลือด: รายการรอบฟอก, แบบฟอร์ม 519, บันทึกระหว่างฟอก, ยา และประวัติการแก้ไข
 import { SECTIONS, VITAL_FIELDS, MEDICATION_FIELDS } from './form519.js';
 import { hdAlerts } from './hdAlerts.js';
+import { DEFAULT_ALERT_SETTINGS, TONES, LEVELS, meets, normalizeAlertSettings } from './alertSettings.js';
+import { playAlert } from './alertSound.js';
 import { buildPdf519 } from './pdf519.js';
 import { getSaveMode, setSaveMode, canPickFolder, savedFolder, pickFolder, writeToFolder, makeZip, downloadFile } from './localSave.js';
 import {
@@ -68,6 +70,7 @@ async function openSession(id) {
     <fieldset><legend>${esc(s.title)}</legend>${s.fields.map((f) => renderField(f, current)).join('')}</fieldset>`).join('');
   renderRows('vitals', VITAL_FIELDS, current.vitals);
   showHdAlerts();
+  soundForNewAlerts();
   if (!$('cap').hidden && $('cap').dataset.session !== current.id) closeCapture();
   renderRows('medications', MEDICATION_FIELDS, current.medications);
   resetConfirm();
@@ -94,9 +97,91 @@ function showHdAlerts() {
       items.push(`<li class="${a.level}">${a.level === 'danger' ? '⚠️ ' : ''}${time ? `<b>${esc(time)}</b> ` : ''}${esc(a.text)}</li>`);
     }
   });
-  $('hd-alerts').hidden = !count;
-  $('hd-alerts').innerHTML = count ? `<li class="head">เตือนระหว่างฟอก ${count} รายการ กรุณาประเมินผู้ป่วยและรายงานแพทย์ตามแนวทางของศูนย์</li>${items.join('')}` : '';
+  // SMS ที่ส่งไปแล้วของรอบนี้ (จากเซิร์ฟเวอร์)
+  const sent = {};
+  for (const n of current?.notifications || []) (sent[`${n.phone}|${n.status}`] ??= new Set()).add(n.vital_id);
+  const SMS_STATUS = { SENT: 'ส่ง SMS แล้ว', FAILED: 'ส่ง SMS ไม่สำเร็จ', NOT_CONFIGURED: 'ยังไม่ได้ส่ง SMS (ยังไม่ได้ตั้งค่าผู้ให้บริการ)' };
+  const sms = Object.entries(sent).map(([k, rows]) => { const [phone, status] = k.split('|'); return `<li class="sms">📱 ${SMS_STATUS[status]} ถึง ${esc(phone)} (${rows.size} แถว)</li>`; });
+  $('hd-alerts').hidden = !count && !sms.length;
+  $('hd-alerts').innerHTML = (count ? `<li class="head">เตือนระหว่างฟอก ${count} รายการ กรุณาประเมินผู้ป่วยและรายงานแพทย์ตามแนวทางของศูนย์</li>${items.join('')}` : '') + sms.join('');
 }
+
+// เสียงเตือน: ดังเมื่อแถวที่บันทึกแล้วมีค่าผิดปกติใหม่ (เปิดแบบฟอร์มครั้งแรกไม่ดัง)
+let alertCfg = DEFAULT_ALERT_SETTINGS;
+let smsReady = false;
+let heard = { session: null, keys: new Set() };
+function soundForNewAlerts() {
+  const { rows } = hdAlerts(current.vitals, current);
+  const keys = new Set();
+  rows.forEach((list, i) => list.forEach((a) => keys.add(`${current.vitals[i].id}|${a.field}|${a.level}`)));
+  const fresh = heard.session === current.id ? [...keys].filter((k) => !heard.keys.has(k)) : [];
+  heard = { session: current.id, keys };
+  const { sound } = alertCfg;
+  if (sound.enabled && fresh.some((k) => meets(k.split('|')[2], sound.level))) playAlert(sound);
+}
+
+async function loadAlertSettings() {
+  try {
+    const s = await api('/settings');
+    alertCfg = s.hd_alert || DEFAULT_ALERT_SETTINGS;
+    smsReady = Boolean(s.sms_ready);
+  } catch {}
+  const { sound, sms } = alertCfg;
+  $('al-summary').textContent = `เสียง${sound.enabled ? `เปิด (${TONES[sound.tone]})` : 'ปิด'} · SMS ${sms.enabled ? `เปิด ${sms.phones.length} เบอร์${smsReady ? '' : ' แต่ยังไม่ได้ตั้งค่าผู้ให้บริการ SMS'}` : 'ปิด'}`;
+}
+
+function fillAlertForm() {
+  const { sound, sms } = alertCfg;
+  const opts = (map, v) => Object.entries(map).map(([k, l]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  $('al-sound-on').value = sound.enabled ? '1' : '0';
+  $('al-sound-level').innerHTML = opts(LEVELS, sound.level);
+  $('al-tone').innerHTML = opts(TONES, sound.tone);
+  $('al-volume').value = sound.volume;
+  $('al-volume-v').textContent = `${sound.volume}%`;
+  $('al-repeat').value = sound.repeat;
+  $('al-sms-on').value = sms.enabled ? '1' : '0';
+  $('al-sms-level').innerHTML = opts(LEVELS, sms.level);
+  $('al-phones').value = sms.phones.join('\n');
+  $('al-sms-state').textContent = smsReady
+    ? 'เชื่อมต่อผู้ให้บริการ SMS แล้ว'
+    : 'ยังไม่ได้เชื่อมต่อผู้ให้บริการ SMS บนเซิร์ฟเวอร์ (ตั้ง SMS_WEBHOOK_URL) ตั้งเบอร์ไว้ก่อนได้ ระบบจะบันทึกว่ายังไม่ได้ส่งจนกว่าจะเชื่อมต่อ';
+  $('al-msg').textContent = '';
+}
+const readAlertForm = () => ({
+  sound: { enabled: $('al-sound-on').value === '1', level: $('al-sound-level').value, tone: $('al-tone').value, volume: Number($('al-volume').value), repeat: Number($('al-repeat').value) },
+  sms: { enabled: $('al-sms-on').value === '1', level: $('al-sms-level').value, phones: $('al-phones').value },
+});
+
+$('al-toggle').addEventListener('click', async () => {
+  $('al').hidden = !$('al').hidden;
+  if (!$('al').hidden) { await loadAlertSettings(); fillAlertForm(); }
+});
+$('al-volume').addEventListener('input', () => { $('al-volume-v').textContent = `${$('al-volume').value}%`; });
+$('al-play').addEventListener('click', () => {
+  const { value } = normalizeAlertSettings(readAlertForm());
+  if (!playAlert({ ...value.sound, repeat: Math.min(value.sound.repeat, 2) })) $('al-msg').textContent = 'ความดังเป็น 0 หรือเครื่องนี้เล่นเสียงไม่ได้';
+});
+$('al-save').addEventListener('click', async () => {
+  if (needUser('al-msg')) return;
+  const { errors } = normalizeAlertSettings(readAlertForm());
+  if (errors.length) { $('al-msg').textContent = errors.join(' · '); return; }
+  try {
+    await api('/settings/hd-alert', { method: 'PUT', body: JSON.stringify(readAlertForm()) }, 'al-no-reason');
+    await loadAlertSettings();
+    fillAlertForm();
+    $('al-msg').textContent = 'บันทึกแล้ว';
+  } catch (err) { $('al-msg').textContent = 'บันทึกไม่สำเร็จ: ' + err.message; }
+});
+$('al-test-sms').addEventListener('click', async () => {
+  if (needUser('al-msg')) return;
+  $('al-msg').textContent = 'กำลังส่ง...';
+  try {
+    const { results } = await api('/settings/hd-alert/test-sms', { method: 'POST', body: '{}' }, 'al-no-reason');
+    const label = { SENT: 'ส่งแล้ว', FAILED: 'ส่งไม่สำเร็จ', NOT_CONFIGURED: 'ยังไม่ได้ตั้งค่าผู้ให้บริการ SMS' };
+    $('al-msg').textContent = results.map((r) => `${r.phone}: ${label[r.status]}${r.status === 'FAILED' ? ` (${r.error})` : ''}`).join(' · ');
+  } catch (err) { $('al-msg').textContent = err.message + ' (กดบันทึกการตั้งค่าก่อน)'; }
+});
+loadAlertSettings();
 $('vitals').addEventListener('input', showHdAlerts);
 $('form').addEventListener('input', (e) => { if (['pre_bp_sys', 'target_uf_kg', 'dry_weight_kg', 'pre_weight_kg'].includes(e.target.name)) showHdAlerts(); });
 

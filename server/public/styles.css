@@ -250,3 +250,8 @@ input.time-24[aria-invalid="true"] { border-color: #b91c1c; }
 .hd-alerts li.danger { font-weight: 600; }
 table.rows input.alert-warn { border-color: var(--warn-text); background: var(--warn-bg); }
 table.rows input.alert-danger { border-color: var(--warn-text); background: color-mix(in srgb, var(--warn-bg) 40%, #f8b4b4); font-weight: 600; }
+.alert-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 4px 0 12px; }
+.al-settings fieldset { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 12px; }
+.al-settings .wide { grid-column: 1 / -1; }
+.al-settings input[type=range] { width: 100%; }
+.hd-alerts li.sms { list-style: none; margin-left: -16px; font-weight: 400; }

@@ -4,6 +4,7 @@ import { pick, insertSql, updateSql } from '../crud.js';
 import { readMachineScreen, imageType } from '../screenReader.js';
 import { loadSession, latestExport, prepareExport, confirmSession } from '../dataExport.js';
 import { checkSession } from '../../public/sessionCheck.js';
+import { notifyVital, sessionNotifications } from '../alertNotify.js';
 import { SESSION_COLUMNS, VITAL_FIELDS, MEDICATION_FIELDS } from '../../public/form519.js';
 
 const VITAL_COLUMNS = VITAL_FIELDS.map((f) => f.name);
@@ -40,7 +41,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const data = await loadSession(req.params.id);
   if (!data) return res.status(404).json({ error: 'ไม่พบรอบการฟอก' });
-  res.json({ ...data.session, vitals: data.vitals, medications: data.medications, export: await latestExport(req.params.id) });
+  res.json({ ...data.session, vitals: data.vitals, medications: data.medications, export: await latestExport(req.params.id), notifications: await sessionNotifications(req.params.id) });
 });
 
 // ตรวจแบบฟอร์มทั้งชุดก่อนยืนยัน (ยังไม่บันทึกอะไร)
@@ -105,7 +106,8 @@ for (const [path, table, columns] of [
   router.post(`/:id/${path}`, async (req, res) => {
     const data = { ...pick(req.body, columns), session_id: req.params.id };
     const row = await withAudit(req.actor, req.reason, async (db) => (await db.query(insertSql(table, data))).rows[0]);
-    res.status(201).json(row);
+    const sms = path === 'vitals' ? await notifyVital(req.actor, req.params.id, row.id).catch((err) => { console.error('SMS', err); return []; }) : undefined;
+    res.status(201).json({ ...row, ...(sms && { sms }) });
   });
 
   router.patch(`/:id/${path}/:rowId`, async (req, res) => {
@@ -118,7 +120,8 @@ for (const [path, table, columns] of [
       return (await db.query(sql)).rows[0];
     });
     if (!row) return res.status(404).json({ error: 'ไม่พบรายการ' });
-    res.json(row);
+    const sms = path === 'vitals' ? await notifyVital(req.actor, req.params.id, row.id).catch((err) => { console.error('SMS', err); return []; }) : undefined;
+    res.json({ ...row, ...(sms && { sms }) });
   });
 
   router.delete(`/:id/${path}/:rowId`, async (req, res) => {
