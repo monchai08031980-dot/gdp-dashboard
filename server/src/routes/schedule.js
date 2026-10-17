@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { pool, withAudit } from '../db.js';
 import { pick, insertSql, updateSql } from '../crud.js';
 import { ASSESSMENT_FIELDS } from '../../public/form519.js';
+import { planSchedule } from '../../public/autoPlan.js';
 
 const ASSESSMENT_COLUMNS = ASSESSMENT_FIELDS.map((f) => f.name);
 
@@ -129,6 +130,74 @@ schedule.post('/', async (req, res) => {
   });
   if (!created) return res.status(409).json({ error: 'มีวันที่จองไม่ได้ จึงยังไม่ได้จองวันใดเลย', conflicts });
   res.status(201).json(created);
+});
+
+// ---------------------------------------------------------------------------
+// จัดนัดให้: เสนอนัดตามรอบและวันประจำของผู้ป่วย (public/autoPlan.js) แล้วบันทึกเฉพาะที่พยาบาลเลือก
+// ---------------------------------------------------------------------------
+const MAX_PLAN_DAYS = 31;
+function planDates(from, to) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from || '') || !/^\d{4}-\d{2}-\d{2}$/.test(to || '') || to < from) return null;
+  const out = [];
+  for (let d = new Date(`${from}T00:00:00Z`); out.length <= MAX_PLAN_DAYS; d.setUTCDate(d.getUTCDate() + 1)) {
+    const iso = d.toISOString().slice(0, 10);
+    if (iso > to) return out;
+    out.push(iso);
+  }
+  return out.length > MAX_PLAN_DAYS ? false : out;
+}
+
+// GET /api/schedule/auto-plan?from=&to=  ยังไม่บันทึกอะไร
+schedule.get('/auto-plan', async (req, res) => {
+  const all = planDates(req.query.from, req.query.to);
+  if (all === null) return res.status(400).json({ error: 'กรุณาระบุช่วงวันที่' });
+  if (all === false) return res.status(400).json({ error: `จัดนัดได้ครั้งละไม่เกิน ${MAX_PLAN_DAYS} วัน` });
+  const today = (await pool.query("SELECT to_char(current_date, 'YYYY-MM-DD') AS d")).rows[0].d;
+  const dates = all.filter((d) => d >= today);
+  if (!dates.length) return res.json({ items: [], problems: [], already: 0 });
+  const [patients, shifts, entries, usual] = await Promise.all([
+    pool.query('SELECT id, hn, prefix, first_name, last_name, regular_shift, regular_days FROM patients WHERE active ORDER BY hn'),
+    pool.query('SELECT shift, active, beds FROM shift_settings'),
+    pool.query(`${ENTRY_SELECT} WHERE e.status = 'PLANNED' AND e.schedule_date BETWEEN $1 AND $2`, [dates[0], dates.at(-1)]),
+    // เตียงที่ผู้ป่วยใช้บ่อยที่สุดในรอบประจำ ช่วง 90 วันก่อน
+    pool.query(`SELECT DISTINCT ON (e.patient_id) e.patient_id, e.bed_no
+      FROM schedule_entries e JOIN patients p ON p.id = e.patient_id AND p.regular_shift = e.shift
+      WHERE e.status = 'PLANNED' AND e.bed_no IS NOT NULL AND e.schedule_date BETWEEN $1::date - 90 AND $1::date - 1
+      GROUP BY e.patient_id, e.bed_no ORDER BY e.patient_id, count(*) DESC, max(e.schedule_date) DESC`, [dates[0]]),
+  ]);
+  res.json(planSchedule({
+    dates,
+    patients: patients.rows,
+    shifts: shifts.rows,
+    entries: entries.rows,
+    usualBeds: Object.fromEntries(usual.rows.map((r) => [r.patient_id, r.bed_no])),
+  }));
+});
+
+// POST /api/schedule/auto-book  body: { items: [{ patient_id, date, shift, bed_no }] }
+// บันทึกทุกรายการในครั้งเดียว ถ้ามีรายการที่จองไม่ได้ (ข้อมูลเปลี่ยนระหว่างนั้น) จะไม่บันทึกเลยและบอกทุกรายการที่ติด
+schedule.post('/auto-book', async (req, res) => {
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (!items.length) return res.status(400).json({ error: 'ยังไม่ได้เลือกนัด' });
+  if (items.length > 2000) return res.status(400).json({ error: 'บันทึกได้ครั้งละไม่เกิน 2000 นัด' });
+  const conflicts = [];
+  const created = await withAudit(req.actor, req.reason || 'จัดนัดให้ตามรอบและวันประจำ', async (db) => {
+    const rows = [];
+    for (const it of items) {
+      const { rows: p } = await db.query('SELECT id, hn, first_name, last_name FROM patients WHERE id = $1 AND active', [it.patient_id]);
+      if (!p[0]) { conflicts.push({ ...it, problem: 'ไม่พบผู้ป่วย' }); continue; }
+      const result = await bookOne(db, p[0], it.date, Number(it.shift), it.bed_no ? Number(it.bed_no) : null, null);
+      if (result.problem) conflicts.push({ ...it, hn: p[0].hn, problem: result.problem });
+      else rows.push(result.row);
+    }
+    if (conflicts.length) throw Object.assign(new Error('จองไม่สำเร็จ'), { status: 409 });
+    return rows;
+  }).catch((err) => {
+    if (err.status === 409) return null;
+    throw err;
+  });
+  if (!created) return res.status(409).json({ error: 'มีนัดที่จองไม่ได้ จึงยังไม่ได้บันทึก กรุณากดจัดนัดใหม่', conflicts });
+  res.status(201).json({ created: created.length });
 });
 
 // PATCH /api/schedule/:id  เปลี่ยนเตียงหรือหมายเหตุ

@@ -318,6 +318,82 @@ $('s-form').addEventListener('submit', async (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// จัดนัดให้: ระบบเสนอนัดตามรอบและวันประจำ (public/autoPlan.js) พยาบาลตรวจแล้วบันทึกครั้งเดียว
+// ---------------------------------------------------------------------------
+const auto = { items: [] };
+
+$('s-auto').addEventListener('click', () => {
+  $('s-auto-panel').hidden = !$('s-auto-panel').hidden;
+  if ($('s-auto-panel').hidden) return;
+  // ค่าเริ่มต้น: สัปดาห์ถัดไป (จันทร์ถึงอาทิตย์)
+  const monday = addDays(today(), 7 - weekday(today()));
+  $('s-auto-from').value = monday;
+  $('s-auto-to').value = addDays(monday, 6);
+  $('s-auto-result').hidden = true;
+  $('s-auto-msg').textContent = '';
+});
+$('s-auto-close').addEventListener('click', () => { $('s-auto-panel').hidden = true; });
+
+function renderAuto(plan) {
+  auto.items = plan.items;
+  const usual = plan.items.filter((i) => i.usual).length;
+  $('s-auto-summary').textContent = plan.items.length
+    ? `เสนอนัด ${plan.items.length} รายการ (ได้เตียงเดิม ${usual})${plan.already ? ` · มีนัดอยู่แล้ว ${plan.already} รายการ` : ''}${plan.problems.length ? ` · จัดไม่ได้ ${plan.problems.length} รายการ` : ''}`
+    : `ไม่มีนัดที่ต้องจัดเพิ่ม${plan.already ? ` (มีนัดอยู่แล้ว ${plan.already} รายการ)` : ''}`;
+  $('s-auto-problems').innerHTML = plan.problems.map((p) =>
+    `<li><small>${esc(dayFull(p.date))} รอบ ${p.shift}</small>${esc(`HN ${p.hn} ${p.name}: ${p.problem}`)}</li>`).join('');
+  $('s-auto-rows').innerHTML = plan.items.map((i, k) => `<tr>
+    <td><input type="checkbox" data-k="${k}" checked aria-label="เลือก"></td>
+    <td>${esc(dayFull(i.date))}</td><td>${i.shift}</td><td>${i.bed_no}${i.usual ? ' <span class="badge">เตียงเดิม</span>' : ''}</td>
+    <td>${esc(i.hn)}</td><td>${esc(i.name)}</td></tr>`).join('') || '<tr><td colspan="6">ไม่มีรายการ</td></tr>';
+  $('s-auto-all').checked = true;
+  $('s-auto-save').disabled = !plan.items.length;
+  $('s-auto-save').textContent = `บันทึกนัดที่เลือก (${plan.items.length})`;
+  $('s-auto-save-msg').textContent = '';
+  $('s-auto-result').hidden = false;
+}
+
+const pickedAuto = () => [...$('s-auto-rows').querySelectorAll('input[data-k]:checked')].map((el) => auto.items[Number(el.dataset.k)]);
+$('s-auto-rows').addEventListener('change', () => { $('s-auto-save').textContent = `บันทึกนัดที่เลือก (${pickedAuto().length})`; });
+$('s-auto-all').addEventListener('change', () => {
+  for (const el of $('s-auto-rows').querySelectorAll('input[data-k]')) el.checked = $('s-auto-all').checked;
+  $('s-auto-save').textContent = `บันทึกนัดที่เลือก (${pickedAuto().length})`;
+});
+
+$('s-auto-run').addEventListener('click', async () => {
+  const from = $('s-auto-from').value, to = $('s-auto-to').value;
+  if (!from || !to) { $('s-auto-msg').textContent = 'กรุณาเลือกช่วงวันที่'; return; }
+  if (to < today()) { $('s-auto-msg').textContent = 'นัดล่วงหน้าได้ตั้งแต่วันนี้เป็นต้นไป'; return; }
+  $('s-auto-msg').textContent = 'กำลังจัดนัด…';
+  try {
+    renderAuto(await api(`/schedule/auto-plan?from=${from}&to=${to}`));
+    $('s-auto-msg').textContent = from < today() ? 'วันที่ผ่านมาแล้วไม่ได้จัดให้' : '';
+  } catch (err) {
+    $('s-auto-msg').textContent = 'จัดนัดไม่สำเร็จ: ' + err.message;
+  }
+});
+
+$('s-auto-save').addEventListener('click', async () => {
+  if (needUser('s-auto-save-msg')) return;
+  const items = pickedAuto().map(({ patient_id, date, shift, bed_no }) => ({ patient_id, date, shift, bed_no }));
+  if (!items.length) { $('s-auto-save-msg').textContent = 'ยังไม่ได้เลือกนัด'; return; }
+  $('s-auto-save').disabled = true;
+  $('s-auto-save-msg').textContent = 'กำลังบันทึก…';
+  try {
+    const r = await api('/schedule/auto-book', { method: 'POST', body: JSON.stringify({ items }) }, NO_REASON);
+    state.anchor = $('s-auto-from').value;
+    await load();
+    renderAuto(await api(`/schedule/auto-plan?from=${$('s-auto-from').value}&to=${$('s-auto-to').value}`));
+    $('s-auto-save-msg').textContent = `บันทึกนัดแล้ว ${r.created} รายการ`;
+  } catch (err) {
+    const list = (err.body?.conflicts || []).slice(0, 5).map((c) => `${fmtDate(c.date)} HN ${c.hn || ''}: ${c.problem}`).join(' · ');
+    $('s-auto-save-msg').textContent = `บันทึกไม่สำเร็จ: ${err.message}${list ? ` (${list})` : ''}`;
+  } finally {
+    $('s-auto-save').disabled = !auto.items.length;
+  }
+});
+
+// ---------------------------------------------------------------------------
 // ดูข้อมูลผู้ป่วย
 // ---------------------------------------------------------------------------
 function optionLabel(field, value) {

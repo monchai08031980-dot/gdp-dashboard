@@ -185,7 +185,32 @@
         </span>
         <b id="s-range"></b>
         <button type="button" id="s-add">นัดผู้ป่วย</button>
+        <button type="button" id="s-auto">✨ จัดนัดให้</button>
         <button type="button" class="ghost" id="s-settings-toggle">ตั้งค่ารอบ</button>
+      </div>
+
+      <div class="subpanel" id="s-auto-panel" hidden>
+        <h3>✨ จัดนัดให้ตามรอบและวันประจำ</h3>
+        <p class="cap-hint">ระบบเสนอนัดให้ผู้ป่วยทุกคนตามรอบและวันที่มาฟอกประจำ ให้เตียงเดิมที่ใช้บ่อยก่อน ข้ามคนที่มีนัดแล้ว ตรวจรายการแล้วเอาเครื่องหมายออกถ้าไม่ต้องการ จากนั้นกดบันทึกครั้งเดียว (คำนวณในระบบเอง ไม่ส่งข้อมูลออกภายนอก)</p>
+        <div class="actions">
+          <label class="field"><span>ตั้งแต่วันที่</span><input type="date" id="s-auto-from"></label>
+          <label class="field"><span>ถึงวันที่</span><input type="date" id="s-auto-to"></label>
+          <button type="button" id="s-auto-run">จัดนัด</button>
+          <button type="button" class="ghost" id="s-auto-close">ปิด</button>
+          <span class="msg" id="s-auto-msg"></span>
+        </div>
+        <div id="s-auto-result" hidden>
+          <p class="check-summary" id="s-auto-summary"></p>
+          <ul class="check-list check-warn" id="s-auto-problems"></ul>
+          <div class="table-scroll auto-scroll"><table>
+            <thead><tr><th><input type="checkbox" id="s-auto-all" checked aria-label="เลือกทั้งหมด"></th><th>วันที่</th><th>รอบ</th><th>เตียง</th><th>HN</th><th>ชื่อ-สกุล</th></tr></thead>
+            <tbody id="s-auto-rows"></tbody>
+          </table></div>
+          <div class="actions">
+            <button type="button" id="s-auto-save">บันทึกนัดที่เลือก</button>
+            <span class="msg" id="s-auto-save-msg"></span>
+          </div>
+        </div>
       </div>
 
       <div class="subpanel" id="s-settings" hidden>
