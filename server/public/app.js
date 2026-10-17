@@ -1,5 +1,6 @@
 // หน้าบันทึกการฟอกเลือด: รายการรอบฟอก, แบบฟอร์ม 519, บันทึกระหว่างฟอก, ยา และประวัติการแก้ไข
 import { SECTIONS, VITAL_FIELDS, MEDICATION_FIELDS } from './form519.js';
+import { hdAlerts } from './hdAlerts.js';
 import { buildPdf519 } from './pdf519.js';
 import { getSaveMode, setSaveMode, canPickFolder, savedFolder, pickFolder, writeToFolder, makeZip, downloadFile } from './localSave.js';
 import {
@@ -66,11 +67,38 @@ async function openSession(id) {
   $('form').innerHTML = SECTIONS.map((s) => `
     <fieldset><legend>${esc(s.title)}</legend>${s.fields.map((f) => renderField(f, current)).join('')}</fieldset>`).join('');
   renderRows('vitals', VITAL_FIELDS, current.vitals);
+  showHdAlerts();
   if (!$('cap').hidden && $('cap').dataset.session !== current.id) closeCapture();
   renderRows('medications', MEDICATION_FIELDS, current.medications);
   resetConfirm();
   await loadAudit();
 }
+
+// เตือนค่าผิดปกติระหว่างฟอก (เกณฑ์ใน hdAlerts.js) อ่านจากตารางและแบบฟอร์มที่แสดงอยู่ จึงเตือนทันทีขณะพิมพ์ก่อนกดเพิ่ม
+function showHdAlerts() {
+  const trs = [...$('vitals').querySelectorAll('tbody tr')];
+  const val = (root, name) => root.querySelector(`[name="${name}"]`)?.value ?? '';
+  const rows = trs.map((tr) => Object.fromEntries(VITAL_FIELDS.map((f) => [f.name, val(tr, f.name)])));
+  const session = Object.fromEntries(['pre_bp_sys', 'target_uf_kg', 'dry_weight_kg', 'pre_weight_kg'].map((n) => [n, val($('form'), n) || current?.[n]]));
+  const { rows: alerts, count } = hdAlerts(rows, session);
+  const items = [];
+  trs.forEach((tr, i) => {
+    tr.querySelectorAll('.alert-warn, .alert-danger').forEach((el) => { el.classList.remove('alert-warn', 'alert-danger'); el.removeAttribute('title'); });
+    for (const a of alerts[i]) {
+      const input = tr.querySelector(`[name="${a.field}"]`);
+      if (!input) continue;
+      if (!input.classList.contains('alert-danger')) input.classList.add(`alert-${a.level}`);
+      if (a.level === 'danger') input.classList.remove('alert-warn');
+      input.title = [input.title, a.text].filter(Boolean).join('\n');
+      const time = rows[i].recorded_time ? normalizeHm(rows[i].recorded_time) || rows[i].recorded_time : (tr.dataset.row ? '' : 'แถวใหม่');
+      items.push(`<li class="${a.level}">${a.level === 'danger' ? '⚠️ ' : ''}${time ? `<b>${esc(time)}</b> ` : ''}${esc(a.text)}</li>`);
+    }
+  });
+  $('hd-alerts').hidden = !count;
+  $('hd-alerts').innerHTML = count ? `<li class="head">เตือนระหว่างฟอก ${count} รายการ กรุณาประเมินผู้ป่วยและรายงานแพทย์ตามแนวทางของศูนย์</li>${items.join('')}` : '';
+}
+$('vitals').addEventListener('input', showHdAlerts);
+$('form').addEventListener('input', (e) => { if (['pre_bp_sys', 'target_uf_kg', 'dry_weight_kg', 'pre_weight_kg'].includes(e.target.name)) showHdAlerts(); });
 
 async function loadAudit() {
   const rows = await api(`/audit?session_id=${current.id}`);

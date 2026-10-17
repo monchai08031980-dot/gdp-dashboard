@@ -244,3 +244,9 @@ input.time-24[aria-invalid="true"] { border-color: #b91c1c; }
 #pa label.from-voice { background: var(--accent-soft); border-radius: 4px; }
 #pa label.voice-off { background: var(--warn-bg); border-radius: 4px; text-decoration: line-through; }
 @media (max-width: 600px) { .pa-voice-row { flex-wrap: wrap; } .pa-voice-row textarea { flex-basis: 100%; order: -1; } }
+.hd-alerts { margin: 8px 0 14px; padding: 8px 12px 8px 28px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-text); font-size: 14px; }
+.hd-alerts li + li { margin-top: 3px; }
+.hd-alerts li.head { list-style: none; margin-left: -16px; font-weight: 600; }
+.hd-alerts li.danger { font-weight: 600; }
+table.rows input.alert-warn { border-color: var(--warn-text); background: var(--warn-bg); }
+table.rows input.alert-danger { border-color: var(--warn-text); background: color-mix(in srgb, var(--warn-bg) 40%, #f8b4b4); font-weight: 600; }
