@@ -66,6 +66,7 @@ async function openSession(id) {
   renderRows('vitals', VITAL_FIELDS, current.vitals);
   if (!$('cap').hidden && $('cap').dataset.session !== current.id) closeCapture();
   renderRows('medications', MEDICATION_FIELDS, current.medications);
+  resetConfirm();
   await loadAudit();
 }
 
@@ -82,6 +83,7 @@ async function run(action) {
     $('reason').value = '';
     await openSession(current.id);
     await loadSessions();
+loadFolder();
     $('msg').textContent = 'บันทึกแล้ว';
     return true;
   } catch (err) {
@@ -90,8 +92,8 @@ async function run(action) {
   }
 }
 
-$('save').addEventListener('click', () => {
-  if (needUser('msg')) return;
+// ช่องในแบบฟอร์มที่แก้แล้วแต่ยังไม่ได้กดบันทึก
+function formChanges() {
   const changes = {};
   for (const field of SECTIONS.flatMap((s) => s.fields)) {
     const value = readField($('form'), field);
@@ -101,6 +103,12 @@ $('save').addEventListener('click', () => {
       : String(value ?? '') === fieldValue(current, field);
     if (!same) changes[field.name] = value;
   }
+  return changes;
+}
+
+$('save').addEventListener('click', () => {
+  if (needUser('msg')) return;
+  const changes = formChanges();
   if (!Object.keys(changes).length) { $('msg').textContent = 'ไม่มีการเปลี่ยนแปลง'; return; }
   run(() => api('/sessions/' + current.id, { method: 'PATCH', body: JSON.stringify(changes) }));
 });
@@ -349,6 +357,121 @@ $('cap-save').addEventListener('click', async () => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// ยืนยันข้อมูลทั้งหมด: ตรวจทั้งแบบฟอร์มที่เซิร์ฟเวอร์ (กติกาใน sessionCheck.js) แล้วบันทึกไฟล์ลงโฟลเดอร์เก็บข้อมูล
+// ต้องไม่มีข้อผิดพลาด และข้อควรตรวจต้องติ๊กรับทราบก่อน การยืนยันมี audit log
+// ---------------------------------------------------------------------------
+let dataFolder = null;
+const confirmMsg = (text) => { $('confirm-msg').textContent = text; };
+
+async function loadFolder() {
+  try { dataFolder = (await api('/settings')).data_folder; } catch { dataFolder = null; }
+  $('folder-current').textContent = dataFolder || 'ยังไม่ได้ตั้งค่า';
+  $('confirm-folder').textContent = dataFolder || '(ยังไม่ได้ตั้งค่า)';
+}
+
+function renderConfirmState() {
+  const e = current?.export;
+  const el = $('confirm-state');
+  if (!e) { el.className = 'confirm-state'; el.textContent = 'ยังไม่ได้ยืนยัน'; return; }
+  el.className = 'confirm-state ' + (e.edited_after ? 'stale' : 'ok');
+  el.innerHTML = e.edited_after
+    ? `⚠️ มีการแก้ไขหลังยืนยัน (ยืนยันไว้เมื่อ ${esc(fmtTime(e.created_at))}) กรุณายืนยันใหม่`
+    : `✔ ยืนยันแล้ว ${esc(fmtTime(e.created_at))} โดย ${esc(e.confirmed_by)} · <span class="export-path">${esc(e.file_path)}</span>`;
+}
+
+function resetConfirm() {
+  $('confirm-result').hidden = true;
+  $('confirm-ack').checked = false;
+  $('confirm-reason').value = '';
+  confirmMsg('');
+  renderConfirmState();
+  $('confirm-folder').textContent = dataFolder || '(ยังไม่ได้ตั้งค่า)';
+}
+
+// แถวว่างท้ายตาราง (ไว้เพิ่มรายการ) ที่กรอกค่าแล้วแต่ยังไม่ได้กดเพิ่ม
+const pendingRow = (kind) => [...$(kind).querySelectorAll('tr[data-row=""] [name]')].some((el) => el.value.trim() !== '');
+
+function goToField(field) {
+  document.querySelectorAll('.check-focus').forEach((el) => el.classList.remove('check-focus'));
+  const input = field === 'vitals' || field === 'medications' ? null : $('form').querySelector(`[name="${field}"]`);
+  const target = input?.closest('.field') || $(field) || $('form');
+  target.classList.add('check-focus');
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  input?.focus({ preventScroll: true });
+}
+
+const checkItem = (item) => `<li data-field="${esc(item.field)}"><small>${esc(item.section)}</small>${esc(item.message)}</li>`;
+
+$('confirm-check').addEventListener('click', async () => {
+  if (needUser('confirm-msg')) return;
+  if (Object.keys(formChanges()).length) { confirmMsg('มีข้อมูลในแบบฟอร์มที่ยังไม่ได้บันทึก กด "บันทึกแบบฟอร์ม" ก่อน'); return; }
+  if (pendingRow('vitals') || pendingRow('medications')) { confirmMsg('มีแถวใหม่ที่กรอกแล้วแต่ยังไม่ได้กด "เพิ่ม" กรุณาเพิ่มหรือลบค่าออกก่อน'); return; }
+  confirmMsg('กำลังตรวจข้อมูลทั้งหมด…');
+  await loadFolder();
+  let check;
+  try { check = await api(`/sessions/${current.id}/check`); } catch (err) { confirmMsg('ตรวจข้อมูลไม่สำเร็จ: ' + err.message); return; }
+  const { errors, warnings } = check;
+  $('confirm-result').hidden = false;
+  $('confirm-errors').innerHTML = errors.map(checkItem).join('');
+  $('confirm-warnings').innerHTML = warnings.map(checkItem).join('');
+  $('confirm-summary').textContent = errors.length
+    ? `❌ พบข้อมูลที่ต้องแก้ ${errors.length} รายการ${warnings.length ? ` และข้อควรตรวจ ${warnings.length} รายการ` : ''} กดที่รายการเพื่อไปที่ช่องนั้น`
+    : warnings.length ? `⚠️ ไม่มีข้อผิดพลาด แต่มีข้อควรตรวจ ${warnings.length} รายการ` : '✔ ตรวจครบทุกส่วนแล้ว ไม่พบข้อผิดพลาด';
+  $('confirm-go').hidden = Boolean(errors.length);
+  $('confirm-ack-wrap').hidden = !warnings.length;
+  $('confirm-ack').checked = false;
+  confirmMsg(!errors.length && !dataFolder ? 'ยังไม่ได้ตั้งค่าโฟลเดอร์เก็บข้อมูล กด "📁 ตั้งค่าโฟลเดอร์เก็บข้อมูล" ด้านบนก่อน' : '');
+});
+
+for (const id of ['confirm-errors', 'confirm-warnings']) {
+  $(id).addEventListener('click', (e) => { const li = e.target.closest('li[data-field]'); if (li) goToField(li.dataset.field); });
+}
+$('confirm-cancel').addEventListener('click', resetConfirm);
+
+$('confirm-save').addEventListener('click', async () => {
+  if (needUser('confirm-msg')) return;
+  if (!$('confirm-ack-wrap').hidden && !$('confirm-ack').checked) { confirmMsg('กรุณาติ๊กว่าได้ตรวจข้อควรตรวจทุกข้อแล้ว'); return; }
+  if (!dataFolder) { confirmMsg('ยังไม่ได้ตั้งค่าโฟลเดอร์เก็บข้อมูล'); return; }
+  $('confirm-save').disabled = true;
+  confirmMsg('กำลังบันทึกลงโฟลเดอร์…');
+  try {
+    const row = await api(`/sessions/${current.id}/confirm`, { method: 'POST', body: JSON.stringify({ acknowledge_warnings: $('confirm-ack').checked }) }, 'confirm-reason');
+    await openSession(current.id);
+    confirmMsg(row.simulated ? `หน้าตัวอย่าง: ตรวจผ่านและบันทึกการยืนยันแล้ว แต่ไม่ได้เขียนไฟล์จริง (ระบบจริงจะบันทึกที่ ${row.file_path})` : `บันทึกแล้ว: ${row.file_path}`);
+  } catch (err) {
+    // ข้อมูลเปลี่ยนระหว่างนั้น: แสดงผลตรวจล่าสุดจากเซิร์ฟเวอร์
+    if (err.body?.check) {
+      $('confirm-errors').innerHTML = err.body.check.errors.map(checkItem).join('');
+      $('confirm-warnings').innerHTML = err.body.check.warnings.map(checkItem).join('');
+    }
+    confirmMsg('บันทึกไม่สำเร็จ: ' + err.message);
+  } finally {
+    $('confirm-save').disabled = false;
+  }
+});
+
+// ตั้งค่าโฟลเดอร์เก็บข้อมูล
+$('folder-open').addEventListener('click', async () => {
+  $('folder-panel').hidden = !$('folder-panel').hidden;
+  if (!$('folder-panel').hidden) { await loadFolder(); $('folder-path').value = dataFolder || ''; $('folder-msg').textContent = ''; }
+});
+$('folder-close').addEventListener('click', () => { $('folder-panel').hidden = true; });
+$('folder-save').addEventListener('click', async () => {
+  if (needUser('folder-msg')) return;
+  $('folder-msg').textContent = 'กำลังตรวจโฟลเดอร์…';
+  try {
+    const { data_folder, simulated } = await api('/settings/data-folder', { method: 'PUT', body: JSON.stringify({ path: $('folder-path').value }) }, 'folder-reason');
+    $('folder-reason').value = '';
+    await loadFolder();
+    $('folder-path').value = data_folder;
+    $('folder-msg').textContent = simulated ? 'บันทึกแล้ว (หน้าตัวอย่าง ไม่ได้ตรวจโฟลเดอร์จริง)' : 'บันทึกแล้ว ทดลองเขียนไฟล์ลงโฟลเดอร์ได้';
+    if (current) $('confirm-folder').textContent = data_folder;
+  } catch (err) {
+    $('folder-msg').textContent = 'บันทึกไม่สำเร็จ: ' + err.message;
+  }
+});
+
 $('sessions').addEventListener('click', (e) => {
   const row = e.target.closest('tr[data-id]');
   if (row) openSession(row.dataset.id).then(() => $('detail').scrollIntoView({ behavior: 'smooth' }));
@@ -364,3 +487,4 @@ $('next').addEventListener('click', () => { listState.page++; loadSessions(); })
 $('close').addEventListener('click', () => { closeCapture(); $('detail').hidden = true; current = null; });
 
 loadSessions();
+loadFolder();

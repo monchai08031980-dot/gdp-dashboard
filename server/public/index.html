@@ -33,6 +33,19 @@
         <input type="search" id="search" placeholder="ค้นหา HN หรือชื่อผู้ป่วย" aria-label="ค้นหา HN หรือชื่อผู้ป่วย">
         <input type="date" id="date" aria-label="วันที่">
         <button id="all" class="ghost">ทุกวัน</button>
+        <button type="button" id="folder-open" class="ghost">📁 ตั้งค่าโฟลเดอร์เก็บข้อมูล</button>
+      </div>
+      <div class="subpanel" id="folder-panel" hidden>
+        <h3>โฟลเดอร์เก็บข้อมูล</h3>
+        <p class="cap-hint">เมื่อกด "ยืนยันข้อมูลทั้งหมด" ระบบจะบันทึกไฟล์ลงโฟลเดอร์นี้บนเครื่องคอมพิวเตอร์ที่ใช้เก็บข้อมูล (เครื่องที่รันระบบ) แยกเป็นโฟลเดอร์ปี/วันที่ ไฟล์ละรอบฟอก (JSON และ CSV)</p>
+        <p>โฟลเดอร์ปัจจุบัน: <b id="folder-current">-</b></p>
+        <div class="actions">
+          <input id="folder-path" placeholder="เช่น D:\HemoData หรือ /srv/hemo-data" aria-label="โฟลเดอร์เก็บข้อมูล">
+          <input id="folder-reason" placeholder="เหตุผลที่เปลี่ยน (ถ้ามี)">
+          <button type="button" id="folder-save">บันทึกโฟลเดอร์</button>
+          <button type="button" id="folder-close" class="ghost">ปิด</button>
+          <span id="folder-msg"></span>
+        </div>
       </div>
       <table>
         <thead><tr><th>วันที่</th><th>No.</th><th>รอบ</th><th>เตียง</th><th>HN</th><th>ชื่อ-สกุล</th><th>Pre / Post BW</th><th>Total UF</th><th>สถานะ</th></tr></thead>
@@ -101,6 +114,30 @@
       <table class="rows" id="vitals"></table>
       <h3>EPO / Medication during HD</h3>
       <table class="rows" id="medications"></table>
+      <div class="confirm-box" id="confirm-box">
+        <div class="vitals-head">
+          <h3>ยืนยันข้อมูลทั้งหมด</h3>
+          <span id="confirm-state" class="confirm-state"></span>
+        </div>
+        <p class="cap-hint">ระบบจะตรวจทุกส่วนของแบบฟอร์มอย่างละเอียดก่อน แล้วจึงบันทึกเป็นไฟล์ลงโฟลเดอร์ <b id="confirm-folder">-</b></p>
+        <div class="actions">
+          <button type="button" id="confirm-check">✅ ยืนยันข้อมูลทั้งหมด</button>
+          <span id="confirm-msg"></span>
+        </div>
+        <div id="confirm-result" hidden>
+          <p class="check-summary" id="confirm-summary"></p>
+          <ul class="check-list check-error" id="confirm-errors"></ul>
+          <ul class="check-list check-warn" id="confirm-warnings"></ul>
+          <div id="confirm-go" hidden>
+            <label class="check-ack" id="confirm-ack-wrap"><input type="checkbox" id="confirm-ack"> ตรวจข้อควรตรวจทุกข้อแล้ว ข้อมูลถูกต้อง</label>
+            <div class="actions">
+              <input id="confirm-reason" placeholder="หมายเหตุการยืนยัน (ถ้ามี)">
+              <button type="button" id="confirm-save">บันทึกลงโฟลเดอร์</button>
+              <button type="button" id="confirm-cancel" class="ghost">ยกเลิก</button>
+            </div>
+          </div>
+        </div>
+      </div>
       <h3>ประวัติการแก้ไข (Audit log)</h3>
       <table>
         <thead><tr><th>เวลา</th><th>การกระทำ</th><th>ส่วน</th><th>ผู้แก้ไข</th><th>ฟิลด์ที่เปลี่ยน</th><th>เหตุผล</th></tr></thead>

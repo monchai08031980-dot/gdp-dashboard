@@ -207,3 +207,20 @@ input.time-24[aria-invalid="true"] { border-color: #b91c1c; }
 .cap-live { display: grid; gap: 8px; margin-top: 10px; max-width: 640px; }
 .cap-live video { width: 100%; max-height: 60vh; background: #000; border-radius: 6px; object-fit: contain; }
 #cap-shot { font-size: 17px; padding: 10px 18px; }
+
+/* ยืนยันข้อมูลทั้งหมด */
+.confirm-box { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 18px 0; background: var(--bg); }
+.confirm-box h3 { margin: 0; }
+.confirm-state { font-size: 13px; }
+.confirm-state.ok { color: var(--accent); }
+.confirm-state.stale { color: var(--warn-text); }
+.check-summary { margin: 10px 0 6px; font-weight: 600; }
+.check-list { margin: 0 0 10px; padding-left: 0; list-style: none; font-size: 14px; }
+.check-list:empty { display: none; }
+.check-list li { padding: 6px 10px; border-radius: 6px; margin-bottom: 4px; cursor: pointer; }
+.check-list li small { color: var(--muted); margin-right: 6px; }
+.check-error li { background: color-mix(in srgb, #b91c1c 10%, transparent); color: #b91c1c; }
+.check-warn li { background: var(--warn-bg); color: var(--warn-text); }
+.check-ack { display: flex; gap: 8px; align-items: center; margin: 6px 0 10px; }
+.field.check-focus { outline: 2px solid #b91c1c; outline-offset: 2px; border-radius: 6px; }
+.export-path { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }

@@ -2,6 +2,8 @@ import express, { Router } from 'express';
 import { pool, withAudit } from '../db.js';
 import { pick, insertSql, updateSql } from '../crud.js';
 import { readMachineScreen, imageType } from '../screenReader.js';
+import { loadSession, latestExport, confirmSession } from '../dataExport.js';
+import { checkSession } from '../../public/sessionCheck.js';
 import { SESSION_COLUMNS, VITAL_FIELDS, MEDICATION_FIELDS } from '../../public/form519.js';
 
 const VITAL_COLUMNS = VITAL_FIELDS.map((f) => f.name);
@@ -36,15 +38,22 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/:id', async (req, res) => {
-  const { rows } = await pool.query(
-    `SELECT s.*, p.hn, p.prefix, p.first_name, p.last_name
-     FROM dialysis_sessions s JOIN patients p ON p.id = s.patient_id WHERE s.id = $1`,
-    [req.params.id],
-  );
-  if (!rows[0]) return res.status(404).json({ error: 'ไม่พบรอบการฟอก' });
-  const vitals = await pool.query('SELECT * FROM intradialytic_vitals WHERE session_id = $1 ORDER BY recorded_time', [req.params.id]);
-  const medications = await pool.query('SELECT * FROM session_medications WHERE session_id = $1 ORDER BY created_at', [req.params.id]);
-  res.json({ ...rows[0], vitals: vitals.rows, medications: medications.rows });
+  const data = await loadSession(req.params.id);
+  if (!data) return res.status(404).json({ error: 'ไม่พบรอบการฟอก' });
+  res.json({ ...data.session, vitals: data.vitals, medications: data.medications, export: await latestExport(req.params.id) });
+});
+
+// ตรวจแบบฟอร์มทั้งชุดก่อนยืนยัน (ยังไม่บันทึกอะไร)
+router.get('/:id/check', async (req, res) => {
+  const data = await loadSession(req.params.id);
+  if (!data) return res.status(404).json({ error: 'ไม่พบรอบการฟอก' });
+  res.json(checkSession(data.session, data));
+});
+
+// ยืนยันข้อมูลทั้งหมด แล้วบันทึกไฟล์ลงโฟลเดอร์เก็บข้อมูล
+router.post('/:id/confirm', async (req, res) => {
+  const row = await confirmSession(req.actor, req.reason, req.params.id, { acknowledgeWarnings: req.body?.acknowledge_warnings === true });
+  res.status(201).json(row);
 });
 
 router.post('/', async (req, res) => {

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import patients from './routes/patients.js';
 import sessions from './routes/sessions.js';
 import audit from './routes/audit.js';
+import settings from './routes/settings.js';
 import { schedule, shifts } from './routes/schedule.js';
 import { ROLES } from './db.js';
 import { screenReaderEnabled } from './screenReader.js';
@@ -30,6 +31,7 @@ app.get('/api/health', (_req, res) => res.json({ ok: true, screen_reader: screen
 app.use('/api/patients', patients);
 app.use('/api/sessions', sessions);
 app.use('/api/audit', audit);
+app.use('/api/settings', settings);
 app.use('/api/shifts', shifts);
 app.use('/api/schedule', schedule);
 
@@ -41,7 +43,7 @@ app.use((err, _req, res, _next) => {
   if (err.code === '23505') return res.status(409).json({ error: 'ข้อมูลซ้ำ', detail: err.detail });
   if (err.code === '23503') return res.status(400).json({ error: 'อ้างอิงข้อมูลที่ไม่มีอยู่', detail: err.detail });
   if (err.type === 'entity.too.large') return res.status(413).json({ error: 'ไฟล์ใหญ่เกิน 10 MB' });
-  if (err.status) return res.status(err.status).json({ error: err.message });
+  if (err.status) return res.status(err.status).json({ error: err.message, ...(err.check && { check: err.check }) });
   console.error(err);
   res.status(500).json({ error: 'เกิดข้อผิดพลาดในระบบ' });
 });
