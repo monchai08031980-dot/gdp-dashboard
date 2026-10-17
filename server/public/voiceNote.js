@@ -47,11 +47,17 @@ export function parseSpoken(text) {
     rest = rest.replace(m[0], ' ');
   }
 
-  const lower = rest.toLowerCase();
+  const { yes, no } = matchWords(rest, SYMPTOM_WORDS);
+  return { yes, no, weights, note: rest.replace(/\s+/g, ' ').trim() };
+}
+
+// หาคำในพจนานุกรม { รหัส: [คำ] } คำยาวก่อน คำสั้นที่ซ้อนอยู่ในคำยาวไม่นับ คืน { yes, no }
+function matchWords(text, dict) {
+  const lower = String(text).toLowerCase();
   const yes = new Set();
   const no = new Set();
-  const taken = []; // ช่วงข้อความที่จับคู่แล้ว กันคำสั้นซ้อนคำยาว (เช่น "ไข้" ใน "มีไข้")
-  const all = Object.entries(SYMPTOM_WORDS).flatMap(([key, words]) => words.map((w) => [key, w.toLowerCase()]))
+  const taken = [];
+  const all = Object.entries(dict).flatMap(([key, words]) => words.map((w) => [key, w.toLowerCase()]))
     .sort((a, b) => b[1].length - a[1].length);
   for (const [key, word] of all) {
     let at = lower.indexOf(word);
@@ -65,5 +71,102 @@ export function parseSpoken(text) {
     }
   }
   for (const k of yes) no.delete(k);
-  return { yes: [...yes], no: [...no], weights, note: rest.replace(/\s+/g, ' ').trim() };
+  return { yes: [...yes], no: [...no] };
+}
+
+// ---------------------------------------------------------------------------
+// พูดบันทึกใน Hemodialysis sheet: ภาวะแทรกซ้อน การพยาบาล การให้ความรู้ และค่า vital signs ของแถวใหม่
+// ---------------------------------------------------------------------------
+export const HD_WORDS = {
+  complications: {
+    hypotension: ['ความดันต่ำ', 'ความดันตก', 'ความดันลด', 'hypotension'],
+    muscle_cramp: ['ตะคริว', 'muscle cramp', 'cramp'],
+    headache: ['ปวดหัว', 'ปวดศีรษะ', 'headache'],
+    nausea_vomiting: ['คลื่นไส้', 'อาเจียน', 'อ้วก', 'nausea', 'vomiting'],
+    fever: ['มีไข้', 'ไข้', 'หนาวสั่น', 'fever'],
+    hypertension: ['ความดันสูง', 'hypertension'],
+    chest_pain: ['เจ็บหน้าอก', 'แน่นหน้าอก', 'เจ็บอก', 'chest pain'],
+    arrhythmia: ['หัวใจเต้นผิดจังหวะ', 'ใจสั่น', 'arrhythmia'],
+    access_problem: ['เข็มหลุด', 'เส้นไม่ดี', 'เส้นฟอกมีปัญหา', 'เลือดซึม', 'เลือดไหลไม่ดี', 'access problem'],
+    dizziness_syncope: ['เวียนหัว', 'เวียนศีรษะ', 'มึนหัว', 'หน้ามืด', 'เป็นลม', 'dizziness', 'syncope'],
+    no_complication: ['ไม่มีภาวะแทรกซ้อน', 'ไม่มีอาการผิดปกติ', 'no complication'],
+  },
+  technical_complications: {
+    blood_leak: ['เลือดรั่ว', 'blood leak'],
+    clotted_dialyzer: ['ตัวกรองอุดตัน', 'ตัวกรองตัน', 'dialyzer อุดตัน', 'dialyzer ตัน', 'clotted dialyzer'],
+    clotted_blood_line: ['สายเลือดอุดตัน', 'สายอุดตัน', 'ลิ่มเลือดในสาย', 'clotted blood line', 'clotted line'],
+    machine_problem: ['เครื่องเสีย', 'เครื่องมีปัญหา', 'เครื่องขัดข้อง', 'machine problem'],
+    no_complication: ['ไม่มีปัญหาทางเทคนิค', 'ไม่มีปัญหาเครื่อง', 'เครื่องปกติ'],
+  },
+  nursing_management: {
+    psycho_support: ['ให้กำลังใจ', 'psycho support'],
+    trendelenburg: ['นอนหัวต่ำ', 'ยกปลายเท้าสูง', 'ยกขาสูง', 'trendelenburg'],
+    monitor_vs: ['วัดสัญญาณชีพ', 'ติดตามสัญญาณชีพ', 'วัดความดันซ้ำ', 'monitor v/s', 'monitor vs', 'monitor vital sign'],
+    pause_uf: ['หยุด uf', 'ปิด uf', 'หยุดดึงน้ำ', 'pause uf'],
+    hypertonic_solution: ['hypertonic', 'ให้ 50% glucose', 'ให้กลูโคส'],
+    oxygen_therapy: ['ให้ออกซิเจน', 'ให้ o2', 'on o2', 'oxygen'],
+    increase_dialysate: ['เพิ่ม dialysate', 'เพิ่มน้ำยา', 'increase dialysate'],
+    decrease_dialysate: ['ลด dialysate', 'ลดน้ำยา', 'decrease dialysate'],
+    hot_compression: ['ประคบร้อน', 'ประคบอุ่น', 'hot compression'],
+    cold_compression: ['ประคบเย็น', 'cold compression'],
+    strength_exercise: ['บริหารกล้ามเนื้อ', 'ยืดกล้ามเนื้อ', 'ยืดเหยียด', 'strength exercise'],
+    aware_aspirate: ['ระวังสำลัก', 'aware aspirate'],
+    monitor_ekg: ['ติด ekg', 'monitor ekg', 'ดู ekg', 'ทำ ekg'],
+    decrease_bfr: ['ลด bfr', 'ลดความเร็วเลือด', 'decrease bfr'],
+    change_dialyzer: ['เปลี่ยนตัวกรอง', 'เปลี่ยน dialyzer', 'change dialyzer'],
+    change_blood_line: ['เปลี่ยนสายเลือด', 'เปลี่ยนสาย', 'change blood line'],
+    post_hd_nursing: ['post hd nursing', 'ดูแลหลังฟอก'],
+    notified_doctor: ['แจ้งแพทย์', 'รายงานแพทย์', 'ปรึกษาแพทย์', 'แจ้งหมอ', 'notify doctor', 'notified doctor'],
+  },
+};
+// หัวข้อที่ให้ความรู้ นับเฉพาะคำที่อยู่หลัง "แนะนำ" "ให้ความรู้" "สอน" (ไม่เกิน 40 ตัวอักษร)
+const EDUCATION_START = /(แนะนำ|ให้ความรู้|ให้คำแนะนำ|สอน|สุขศึกษา|health education)/gi;
+const EDUCATION_WORDS = {
+  nutrition: ['อาหาร', 'โภชนาการ', 'nutrition'], vascular_access: ['ดูแลเส้น', 'เส้นฟอก', 'แขนที่ทำเส้น', 'vascular access'],
+  exercise: ['ออกกำลังกาย', 'exercise'], personal_hygiene: ['สุขอนามัย', 'ความสะอาด', 'hygiene'],
+  medication: ['ยา', 'medication'], fluid_control: ['จำกัดน้ำ', 'ดื่มน้ำ', 'คุมน้ำ', 'fluid'],
+  kt: ['ปลูกถ่ายไต', 'เปลี่ยนไต', 'kt'], follow_up: ['มาตามนัด', 'ตามนัด', 'follow up', 'f/u'], weigh_bw: ['ชั่งน้ำหนัก', 'ชั่ง bw'],
+};
+
+// ค่า vital signs ที่พูด เช่น "BP 120/80 ชีพจร 80 หายใจ 20 BFR 300 เวลา 10.30"
+const N = '(\\d{1,3}(?:\\s*(?:[.]|จุด)\\s*\\d{1,2})?)';
+const VITAL_WORDS = [
+  ['bp', `(?:bp|ความดัน(?:โลหิต)?|บีพี)\\s*(?:คือ|ได้|=)?\\s*(\\d{2,3})\\s*(?:/|ทับ|\\s)\\s*(\\d{2,3})`],
+  ['pr', `(?:pr|ชีพจร|pulse|ชีพจรเต้น)\\s*(?:คือ|ได้|=)?\\s*${N}`],
+  ['rr', `(?:rr|หายใจ|การหายใจ)\\s*(?:คือ|ได้|=)?\\s*${N}`],
+  ['bfr_ml_min', `(?:bfr|blood flow|บีเอฟอาร์)\\s*(?:คือ|ได้|=)?\\s*${N}`],
+  ['pv_mmhg', `(?:pv|venous pressure|vp)\\s*(?:คือ|ได้|=)?\\s*${N}`],
+  ['tmp_mmhg', `(?:tmp|ทีเอ็มพี)\\s*(?:คือ|ได้|=)?\\s*${N}`],
+  ['conductivity_ms_cm', `(?:conduct(?:ivity)?|คอนดัค)\\s*(?:คือ|ได้|=)?\\s*${N}`],
+  ['ufr', `(?:ufr)\\s*(?:คือ|ได้|=)?\\s*${N}`],
+  ['total_uf_ml', `(?:total uf|total ml|ดึงน้ำได้|uf รวม)\\s*(?:คือ|ได้|=)?\\s*(\\d{1,4})`],
+  ['recorded_time', `(?:เวลา|time)\\s*(\\d{1,2})\\s*(?:[.:]|นาฬิกา|โมง)\\s*(\\d{2})?`],
+];
+
+// คืน { checks: { ชื่อรายการ: { yes, no } }, vitals: { ช่อง: ค่า }, note }
+export function parseHdSpoken(text) {
+  let rest = ` ${String(text || '').replace(/\s+/g, ' ').trim()} `;
+  const vitals = {};
+  for (const [name, pattern] of VITAL_WORDS) {
+    const m = rest.match(new RegExp(pattern, 'i'));
+    if (!m) continue;
+    if (name === 'bp') { vitals.bp_sys = Number(m[1]); vitals.bp_dia = Number(m[2]); }
+    else if (name === 'recorded_time') {
+      const h = Number(m[1]), mi = Number(m[2] || 0);
+      if (h < 24 && mi < 60) vitals.recorded_time = `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`;
+    } else vitals[name] = toNumber(m[1]);
+    rest = rest.replace(m[0], ' ');
+  }
+  const checks = {};
+  for (const [name, dict] of Object.entries(HD_WORDS)) checks[name] = matchWords(rest, dict);
+  // ไม่มีภาวะแทรกซ้อน ใช้ร่วมกับภาวะอื่นไม่ได้
+  for (const name of ['complications', 'technical_complications']) {
+    if (checks[name].yes.length > 1) checks[name].yes = checks[name].yes.filter((k) => k !== 'no_complication');
+  }
+  const edu = new Set();
+  for (const m of rest.matchAll(EDUCATION_START)) {
+    for (const k of matchWords(rest.slice(m.index + m[0].length, m.index + m[0].length + 40), EDUCATION_WORDS).yes) edu.add(k);
+  }
+  checks.health_education = { yes: [...edu], no: [] };
+  return { checks, vitals, note: rest.replace(/\s+/g, ' ').trim() };
 }

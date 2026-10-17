@@ -3,6 +3,8 @@ import { SECTIONS, VITAL_FIELDS, MEDICATION_FIELDS } from './form519.js';
 import { hdAlerts } from './hdAlerts.js';
 import { DEFAULT_ALERT_SETTINGS, TONES, LEVELS, meets, normalizeAlertSettings } from './alertSettings.js';
 import { playAlert } from './alertSound.js';
+import { parseHdSpoken } from './voiceNote.js';
+import { speechSupported, toggleDictation, stopDictation } from './speech.js';
 import { buildPdf519 } from './pdf519.js';
 import { getSaveMode, setSaveMode, canPickFolder, savedFolder, pickFolder, writeToFolder, makeZip, downloadFile } from './localSave.js';
 import {
@@ -69,6 +71,7 @@ async function openSession(id) {
   $('form').innerHTML = SECTIONS.map((s) => `
     <fieldset><legend>${esc(s.title)}</legend>${s.fields.map((f) => renderField(f, current)).join('')}</fieldset>`).join('');
   renderRows('vitals', VITAL_FIELDS, current.vitals);
+  if (hdVoiceFor !== current.id) { stopDictation($('hd-mic')); $('hd-voice-text').value = ''; hdSay(HD_VOICE_HINT); hdVoiceFor = current.id; }
   showHdAlerts();
   soundForNewAlerts();
   if (!$('cap').hidden && $('cap').dataset.session !== current.id) closeCapture();
@@ -185,6 +188,57 @@ loadAlertSettings();
 $('vitals').addEventListener('input', showHdAlerts);
 $('form').addEventListener('input', (e) => { if (['pre_bp_sys', 'target_uf_kg', 'dry_weight_kg', 'pre_weight_kg'].includes(e.target.name)) showHdAlerts(); });
 
+// พูดบันทึกใน Hemodialysis sheet (speech.js) แปลในเครื่อง (voiceNote.js) แล้วติ๊กช่อง เติมแถวใหม่ และ Nurse Note ให้ตรวจก่อนบันทึก
+const HD_VOICE_HINT = $('hd-voice-msg').textContent;
+const hdSay = (text, warn = false) => { $('hd-voice-msg').textContent = text; $('hd-voice-msg').classList.toggle('warn', warn); };
+let hdVoiceFor = null;
+if (!speechSupported()) $('hd-mic').hidden = true;
+$('hd-mic').addEventListener('click', () => toggleDictation({ button: $('hd-mic'), box: $('hd-voice-text'), say: hdSay, onDone: applyHdVoice, label: '🎤 พูดบันทึก' }));
+$('hd-voice-apply').addEventListener('click', applyHdVoice);
+$('hd-voice-text').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); applyHdVoice(); } });
+
+function applyHdVoice() {
+  const text = $('hd-voice-text').value.trim();
+  if (!text) { hdSay('ยังไม่มีข้อความ กรุณาพูดหรือพิมพ์ก่อน', true); return; }
+  const { checks, vitals, note } = parseHdSpoken(text);
+  const form = $('form');
+  document.querySelectorAll('#form label.from-voice, #form label.voice-off, #vitals .from-voice, #form .from-voice').forEach((el) => el.classList.remove('from-voice', 'voice-off'));
+  const parts = [];
+  const LABEL = { complications: 'Complication', technical_complications: 'Technical', nursing_management: 'Nursing', health_education: 'Education' };
+  for (const [name, { yes, no }] of Object.entries(checks)) {
+    const box = (k) => form.querySelector(`[name="${name}"][value="${k}"]`);
+    const on = [], off = [];
+    // ติ๊ก "ไม่มีภาวะแทรกซ้อน" แล้วเอาภาวะอื่นออก และกลับกัน
+    const exclusive = name === 'complications' || name === 'technical_complications';
+    if (exclusive && yes.includes('no_complication')) form.querySelectorAll(`[name="${name}"]:checked`).forEach((el) => { if (el.value !== 'no_complication') { el.checked = false; el.closest('label')?.classList.add('voice-off'); } });
+    if (exclusive && yes.some((k) => k !== 'no_complication') && box('no_complication')?.checked) { box('no_complication').checked = false; box('no_complication').closest('label')?.classList.add('voice-off'); }
+    for (const k of yes) { const el = box(k); if (!el) continue; el.checked = true; el.closest('label')?.classList.add('from-voice'); on.push(el.closest('label')?.textContent.trim() || k); }
+    for (const k of no) { const el = box(k); if (!el?.checked) continue; el.checked = false; el.closest('label')?.classList.add('voice-off'); off.push(el.closest('label')?.textContent.trim() || k); }
+    if (on.length) parts.push(`${LABEL[name]}: ${on.join(', ')}`);
+    if (off.length) parts.push(`เอาออก ${off.join(', ')}`);
+  }
+  const vitalNames = Object.keys(vitals);
+  if (vitalNames.length) {
+    const row = [...$('vitals').querySelectorAll('tbody tr')].find((tr) => !tr.dataset.row);
+    for (const name of vitalNames) {
+      const input = row?.querySelector(`[name="${name}"]`);
+      if (!input) continue;
+      input.value = vitals[name];
+      input.classList.add('from-voice');
+    }
+    const label = (n) => VITAL_FIELDS.find((f) => f.name === n)?.label || n;
+    parts.push(`แถวใหม่: ${vitalNames.map((n) => `${label(n)} ${vitals[n]}`).join(', ')} (กด "เพิ่ม" เพื่อบันทึกแถว)`);
+    showHdAlerts();
+  }
+  if (note) {
+    const n = form.querySelector('[name=nurse_note]');
+    if (n && !n.value.includes(note)) { n.value = [n.value.trim(), note].filter(Boolean).join('\n'); n.classList.add('from-voice'); }
+    parts.push('ใส่ข้อความใน Nurse Note แล้ว');
+  }
+  hdSay(parts.length ? `${parts.join(' · ')} กรุณาตรวจช่องสีฟ้า แล้วกด "บันทึกแบบฟอร์ม"` : 'ไม่พบรายการหรือค่าในข้อความ', !parts.length);
+  $('hd-voice-text').value = '';
+}
+
 async function loadAudit() {
   const rows = await api(`/audit?session_id=${current.id}`);
   $('audit').innerHTML = rows.map((a) => `
@@ -193,18 +247,31 @@ async function loadAudit() {
 }
 
 async function run(action) {
+  // ช่องในแบบฟอร์มที่แก้ไว้แต่ยังไม่ได้กดบันทึกแบบฟอร์ม (เช่น ติ๊กจากการพูด) ไม่หายเมื่อเพิ่มหรือแก้แถวระหว่างฟอก
+  const keep = formChanges();
   try {
     await action();
     $('reason').value = '';
     await openSession(current.id);
+    const still = restoreForm(keep);
     await loadSessions();
 loadFolder();
-    $('msg').textContent = 'บันทึกแล้ว';
+    $('msg').textContent = still ? `บันทึกแล้ว · แบบฟอร์มยังมี ${still} ช่องที่แก้แต่ยังไม่ได้กด "บันทึกแบบฟอร์ม"` : 'บันทึกแล้ว';
     return true;
   } catch (err) {
     $('msg').textContent = 'บันทึกไม่สำเร็จ: ' + err.message;
     return false;
   }
+}
+
+// ใส่ค่าที่ยังไม่ได้บันทึกกลับลงแบบฟอร์มหลังโหลดใหม่ คืนจำนวนช่องที่ยังต่างจากที่บันทึกไว้
+function restoreForm(changes) {
+  for (const [name, value] of Object.entries(changes)) {
+    const inputs = $('form').querySelectorAll(`[name="${name}"]`);
+    if (inputs.length > 1 || inputs[0]?.type === 'checkbox') inputs.forEach((el) => { el.checked = value.includes(el.value); });
+    else if (inputs[0]) inputs[0].value = value ?? '';
+  }
+  return Object.keys(formChanges()).length;
 }
 
 // ช่องในแบบฟอร์มที่แก้แล้วแต่ยังไม่ได้กดบันทึก

@@ -1,6 +1,7 @@
 // หน้าเตรียมผู้ป่วย: ตารางนัดฟอกล่วงหน้าแบบวัน สัปดาห์ เดือน และดูข้อมูลผู้ป่วย
 import { PATIENT_FIELDS, CHECKLISTS, ASSESSMENT_SECTIONS, ASSESSMENT_FIELDS } from './form519.js';
 import { parseSpoken } from './voiceNote.js';
+import { speechSupported, toggleDictation, stopDictation } from './speech.js';
 import { $, api, apiList, apiUpload, blobUrl, esc, fmtDate, fmtTime, age, needUser, renderField, readField } from './common.js';
 
 const NO_REASON = 's-no-reason'; // หน้านี้ไม่มีช่องเหตุผล
@@ -549,46 +550,12 @@ $('pa-scale-file').addEventListener('change', async (e) => {
 // พยาบาลแก้ค่าเองแล้ว ไม่ใช่ค่าจากรูปอีกต่อไป
 $('pa').addEventListener('input', (e) => { if (e.isTrusted && e.target.name === 'pre_weight_kg') e.target.classList.remove('from-photo'); });
 
-// พูดแทนพิมพ์: เปลี่ยนเสียงเป็นข้อความด้วยระบบรู้จำเสียงของเบราว์เซอร์ (ภาษาไทย) แล้วแปลเป็นอาการและน้ำหนักในเครื่อง (voiceNote.js)
-// เบราว์เซอร์ที่ไม่มีระบบรู้จำเสียง ใช้ไมค์บนคีย์บอร์ดมือถือพูดลงช่องข้อความ หรือพิมพ์เองแล้วกด "ใส่ลงฟอร์ม"
+// พูดแทนพิมพ์ (speech.js) แล้วแปลเป็นอาการและน้ำหนักในเครื่อง (voiceNote.js) หรือพิมพ์เองแล้วกด "ใส่ลงฟอร์ม"
 const VOICE_HINT = $('pa-voice-msg').textContent;
 const voiceMsg = (text, warn = false) => { $('pa-voice-msg').textContent = text; $('pa-voice-msg').classList.toggle('warn', warn); };
-const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (!Recognition) $('pa-mic').hidden = true;
-let mic = null;
-function stopMic() { mic?.stop(); }
-
-$('pa-mic').addEventListener('click', () => {
-  if (mic) { mic.stop(); return; }
-  const box = $('pa-voice-text');
-  const start = box.value.trim();
-  mic = new Recognition();
-  Object.assign(mic, { lang: 'th-TH', continuous: true, interimResults: true });
-  let heard = '';
-  mic.onresult = (e) => {
-    let interim = '';
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) heard += e.results[i][0].transcript + ' ';
-      else interim += e.results[i][0].transcript;
-    }
-    box.value = [start, heard + interim].filter(Boolean).join(' ').trim();
-  };
-  mic.onerror = (e) => {
-    voiceMsg(e.error === 'not-allowed' || e.error === 'service-not-allowed'
-      ? 'ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน กรุณาอนุญาตในเบราว์เซอร์ หรือพิมพ์ในช่องแทน'
-      : e.error === 'no-speech' ? 'ไม่ได้ยินเสียง กรุณากดพูดอีกครั้ง' : 'รับเสียงไม่สำเร็จ กรุณาลองใหม่หรือพิมพ์แทน', true);
-  };
-  mic.onend = () => {
-    mic = null;
-    $('pa-mic').classList.remove('listening');
-    $('pa-mic').textContent = '🎤 พูด';
-    if (heard.trim()) applyVoice();
-  };
-  mic.start();
-  $('pa-mic').classList.add('listening');
-  $('pa-mic').textContent = '⏹ หยุดพูด';
-  voiceMsg('กำลังฟัง... พูดอาการและน้ำหนัก แล้วกดหยุดพูด');
-});
+if (!speechSupported()) $('pa-mic').hidden = true;
+function stopMic() { stopDictation($('pa-mic')); }
+$('pa-mic').addEventListener('click', () => toggleDictation({ button: $('pa-mic'), box: $('pa-voice-text'), say: voiceMsg, onDone: applyVoice }));
 
 function applyVoice() {
   const text = $('pa-voice-text').value.trim();

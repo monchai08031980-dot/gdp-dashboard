@@ -82,6 +82,14 @@
         <button id="close" class="ghost">ปิด</button>
       </div>
       <div class="patient" id="patient"></div>
+      <div class="pa-voice" id="hd-voice">
+        <div class="pa-voice-row">
+          <button type="button" class="ghost" id="hd-mic">🎤 พูดบันทึก</button>
+          <textarea id="hd-voice-text" rows="2" placeholder="พูดหรือพิมพ์ เช่น เวลา 10.30 ความดัน 85/50 ชีพจร 110 เป็นตะคริว ให้นอนหัวต่ำ หยุด UF แจ้งแพทย์"></textarea>
+          <button type="button" class="ghost" id="hd-voice-apply">ใส่ลงฟอร์ม</button>
+        </div>
+        <span class="cap-hint" id="hd-voice-msg">ระบบติ๊ก Complication, Nursing management, Health education ใส่ค่า BP, PR, RR, BFR ในแถวใหม่ของบันทึกระหว่างฟอก และใส่ข้อความใน Nurse Note ให้ตรวจก่อนกดบันทึก</span>
+      </div>
       <form id="form"></form>
       <div class="actions">
         <input id="reason" placeholder="เหตุผลที่แก้ไข (ถ้ามี)">

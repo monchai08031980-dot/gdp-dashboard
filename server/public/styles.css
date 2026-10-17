@@ -240,9 +240,9 @@ input.time-24[aria-invalid="true"] { border-color: #b91c1c; }
 .pa-voice-row { display: flex; gap: 8px; align-items: stretch; }
 .pa-voice-row textarea { flex: 1; min-width: 0; resize: vertical; font: inherit; }
 .pa-voice .cap-hint.warn { color: var(--warn-text); }
-#pa-mic.listening { border-color: var(--accent); background: var(--accent-soft); }
-#pa label.from-voice { background: var(--accent-soft); border-radius: 4px; }
-#pa label.voice-off { background: var(--warn-bg); border-radius: 4px; text-decoration: line-through; }
+button.listening { border-color: var(--accent); background: var(--accent-soft); }
+label.from-voice { background: var(--accent-soft); border-radius: 4px; }
+label.voice-off { background: var(--warn-bg); border-radius: 4px; text-decoration: line-through; }
 @media (max-width: 600px) { .pa-voice-row { flex-wrap: wrap; } .pa-voice-row textarea { flex-basis: 100%; order: -1; } }
 .hd-alerts { margin: 8px 0 14px; padding: 8px 12px 8px 28px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-text); font-size: 14px; }
 .hd-alerts li + li { margin-top: 3px; }
@@ -255,3 +255,4 @@ table.rows input.alert-danger { border-color: var(--warn-text); background: colo
 .al-settings .wide { grid-column: 1 / -1; }
 .al-settings input[type=range] { width: 100%; }
 .hd-alerts li.sms { list-style: none; margin-left: -16px; font-weight: 400; }
+table.rows input.from-voice, #form input.from-voice, #form textarea.from-voice { border-color: var(--accent); background: var(--accent-soft); }

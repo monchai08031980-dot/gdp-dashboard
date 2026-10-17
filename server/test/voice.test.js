@@ -31,3 +31,26 @@ test('แปลอาการที่มี ที่ไม่มี และ
   assert.deepEqual(parseSpoken('สบายดี').yes, []);
   assert.deepEqual(parseSpoken('').weights, {});
 });
+
+test('พูดบันทึกใน Hemodialysis sheet: ภาวะแทรกซ้อน การพยาบาล การให้ความรู้ และค่า vital signs', async () => {
+  const { parseHdSpoken, HD_WORDS } = await import('../public/voiceNote.js');
+  for (const name of Object.keys(HD_WORDS)) assert.deepEqual(sorted(Object.keys(HD_WORDS[name])), sorted(CHECKLISTS[name].map(([k]) => k)));
+  const a = parseHdSpoken('เวลา 10.30 ความดัน 85/50 ชีพจร 110 เป็นตะคริวและหน้ามืด ให้นอนหัวต่ำ หยุด UF แจ้งแพทย์');
+  assert.deepEqual(a.vitals, { bp_sys: 85, bp_dia: 50, pr: 110, recorded_time: '10:30' });
+  assert.deepEqual(sorted(a.checks.complications.yes), ['dizziness_syncope', 'muscle_cramp']);
+  assert.deepEqual(sorted(a.checks.nursing_management.yes), ['notified_doctor', 'pause_uf', 'trendelenburg']);
+  assert.equal(a.note, 'เป็นตะคริวและหน้ามืด ให้นอนหัวต่ำ หยุด UF แจ้งแพทย์');
+
+  const b = parseHdSpoken('ไม่มีภาวะแทรกซ้อน แนะนำเรื่องอาหารและการจำกัดน้ำ');
+  assert.deepEqual(b.checks.complications.yes, ['no_complication']);
+  assert.deepEqual(sorted(b.checks.health_education.yes), ['fluid_control', 'nutrition']);
+  // คำว่า "อาหาร" ที่ไม่ได้อยู่หลัง "แนะนำ" ไม่นับเป็นการให้ความรู้
+  assert.deepEqual(parseHdSpoken('ทานอาหารได้น้อย').checks.health_education.yes, []);
+
+  const c = parseHdSpoken('BP 140/90 PR 80 ไม่มีตะคริว ตัวกรองอุดตัน เปลี่ยนตัวกรอง');
+  assert.deepEqual(c.checks.complications, { yes: [], no: ['muscle_cramp'] });
+  assert.deepEqual(c.checks.technical_complications.yes, ['clotted_dialyzer']);
+  assert.deepEqual(c.checks.nursing_management.yes, ['change_dialyzer']);
+  assert.deepEqual(parseHdSpoken('ความดัน 120 80 bfr 300 tmp 120').vitals, { bp_sys: 120, bp_dia: 80, bfr_ml_min: 300, tmp_mmhg: 120 });
+  assert.deepEqual(parseHdSpoken('ความดันต่ำ ตะคริว').checks.complications.yes.sort(), ['hypotension', 'muscle_cramp']);
+});
