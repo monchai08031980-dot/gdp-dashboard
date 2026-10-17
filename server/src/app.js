@@ -5,6 +5,7 @@ import sessions from './routes/sessions.js';
 import audit from './routes/audit.js';
 import settings from './routes/settings.js';
 import { schedule, shifts } from './routes/schedule.js';
+import consults from './routes/consults.js';
 import { ROLES } from './db.js';
 import { screenReaderEnabled, scaleReaderEnabled, readScale, imageType } from './screenReader.js';
 
@@ -42,6 +43,7 @@ app.use('/api/audit', audit);
 app.use('/api/settings', settings);
 app.use('/api/shifts', shifts);
 app.use('/api/schedule', schedule);
+app.use('/api/consults', consults);
 
 // Express 5 ส่ง error จาก async handler มาที่นี่เอง
 app.use((err, _req, res, _next) => {

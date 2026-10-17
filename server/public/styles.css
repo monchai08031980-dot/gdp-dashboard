@@ -29,7 +29,7 @@ th { color: var(--muted); font-weight: 600; font-size: 13px; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover { background: var(--accent-soft); }
 input, select, textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--text); width: 100%; }
-.toolbar input, .user input, .user select { width: auto; }
+.toolbar input, .toolbar select, .user input, .user select { width: auto; }
 .user { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 button { font: inherit; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
 button.ghost { background: #fff; color: var(--accent); }
@@ -262,8 +262,14 @@ table.rows input.from-voice, #form input.from-voice, #form textarea.from-voice {
 .consult textarea, .consult input:not([type=checkbox]) { width: 100%; box-sizing: border-box; font: inherit; }
 .consult #cs-report { font-family: inherit; line-height: 1.5; }
 .consult label.inline { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; white-space: nowrap; }
-.consult > label.field { display: block; margin-top: 10px; }
-.cs-item { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; }
+.consult label.field { display: block; margin-top: 10px; }
+.consult label.field > span { display: block; font-size: 13px; color: var(--muted, inherit); margin-bottom: 4px; }
+.cs-item { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0 0 10px; }
+.cs-item.open { border-color: var(--warn-text); }
+.cs-item .cs-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.cs-item .urg-STAT { color: var(--warn-text); font-weight: 600; }
+.tab-badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn-text); color: var(--panel); font-size: 12px; line-height: 18px; text-align: center; }
+label.inline { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
 .cs-item pre { white-space: pre-wrap; font: inherit; margin: 6px 0; }
 .cs-item .cs-order { display: grid; grid-template-columns: minmax(140px, 220px) 1fr auto; gap: 6px; align-items: start; }
 .cs-item .answered { background: var(--accent-soft); border-radius: 6px; padding: 6px 8px; }

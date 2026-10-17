@@ -22,6 +22,7 @@
   <nav class="views" aria-label="เมนู">
     <button type="button" class="view-tab on" data-view="sessions" aria-current="page">การฟอกเลือด</button>
     <button type="button" class="view-tab" data-view="schedule">เตรียมผู้ป่วย</button>
+    <button type="button" class="view-tab" data-view="consult">ปรึกษาแพทย์ <span class="tab-badge" id="cs-badge" hidden></span></button>
     <button type="button" class="view-tab" data-view="patients">ผู้ป่วยทั้งหมด</button>
     <button type="button" class="view-tab" data-view="archive">ข้อมูลผู้ป่วยเก่า</button>
   </nav>
@@ -138,33 +139,6 @@
         <button type="button" class="ghost" id="cs-toggle">🩺 ปรึกษาแพทย์</button>
         <button type="button" class="ghost" id="al-toggle">🔔 ตั้งค่าการเตือน</button>
         <span class="cap-hint" id="al-summary"></span>
-      </div>
-      <div class="subpanel consult" id="cs" hidden>
-        <div class="vitals-head">
-          <h3>ปรึกษาแพทย์</h3>
-          <label class="inline">ความเร่งด่วน <select id="cs-urgency"></select></label>
-        </div>
-        <p class="cap-hint">ระบบรวบรวมภาวะที่อาจเป็นอันตรายจากแบบฟอร์มนี้ให้ เลือกสิ่งที่จะรายงาน เพิ่มสิ่งที่พบจากการตรวจ แล้วระบบเรียบเรียงเป็นรายงานแบบ SBAR ให้แก้ก่อนบันทึก</p>
-        <h4>ภาวะที่ระบบพบ</h4>
-        <div class="checks" id="cs-findings"></div>
-        <label class="field wide"><span>สิ่งที่พบเพิ่มเติมจากการตรวจ (บรรทัดละ 1 เรื่อง)</span><textarea id="cs-extra" rows="2" placeholder="เช่น แผลบวมแดงขนาด 2 ซม. ใกล้ตำแหน่งแทงเข็ม venous กดเจ็บ"></textarea></label>
-        <h4>เรื่องที่ปรึกษา</h4>
-        <div class="checks" id="cs-topics"></div>
-        <input id="cs-other" placeholder="เรื่องอื่น ๆ (ถ้าเลือก อื่น ๆ)" hidden>
-        <h4>สิ่งที่ขอจากแพทย์</h4>
-        <div class="checks" id="cs-requests"></div>
-        <input id="cs-request-note" placeholder="ขอเพิ่มเติม (ถ้ามี)">
-        <h4>รายงานแพทย์ (แก้ได้)</h4>
-        <textarea id="cs-report" rows="12"></textarea>
-        <div class="actions">
-          <button type="button" id="cs-save">บันทึกการปรึกษา</button>
-          <button type="button" class="ghost" id="cs-copy">คัดลอกข้อความ</button>
-          <button type="button" class="ghost" id="cs-print">พิมพ์</button>
-          <button type="button" class="ghost" id="cs-reset">สร้างรายงานใหม่จากแบบฟอร์ม</button>
-          <span class="msg" id="cs-msg"></span>
-        </div>
-        <h4>ประวัติการปรึกษาของรอบฟอกนี้</h4>
-        <div id="cs-history"></div>
       </div>
       <div class="subpanel al-settings" id="al" hidden>
         <h3>ตั้งค่าการเตือนระหว่างฟอก</h3>
@@ -365,6 +339,52 @@
     </section>
   </main>
 
+  <main id="view-consult" hidden>
+    <section class="panel">
+      <div class="toolbar">
+        <h2>ปรึกษาแพทย์</h2>
+        <label class="inline">วันที่ฟอก <input type="date" id="cs-date"></label>
+        <select id="cs-status" aria-label="สถานะ"><option value="open">รอคำสั่งแพทย์</option><option value="all" selected>ทั้งหมด</option><option value="answered">ได้รับคำสั่งแล้ว</option></select>
+        <button type="button" id="cs-new">＋ ปรึกษาใหม่</button>
+      </div>
+      <p class="msg" id="cs-open-all"></p>
+      <div id="cs-list"></div>
+    </section>
+
+    <section class="panel consult" id="cs" hidden>
+      <div class="toolbar">
+        <h2>ปรึกษาแพทย์ใหม่</h2>
+        <button type="button" class="ghost" id="cs-close">ปิด</button>
+      </div>
+      <label class="field wide"><span>ผู้ป่วยที่ฟอกวันที่เลือก</span><select id="cs-session"></select></label>
+      <div id="cs-form" hidden>
+        <div class="vitals-head">
+          <span class="cap-hint" id="cs-patient"></span>
+          <label class="inline">ความเร่งด่วน <select id="cs-urgency"></select></label>
+        </div>
+        <p class="cap-hint">ระบบรวบรวมภาวะที่อาจเป็นอันตรายจาก Hemodialysis sheet ของผู้ป่วยให้ เลือกสิ่งที่จะรายงาน เพิ่มสิ่งที่พบจากการตรวจ แล้วระบบเรียบเรียงเป็นรายงานแบบ SBAR ให้แก้ก่อนบันทึก</p>
+        <h4>ภาวะที่ระบบพบ</h4>
+        <div class="checks" id="cs-findings"></div>
+        <label class="field wide"><span>สิ่งที่พบเพิ่มเติมจากการตรวจ (บรรทัดละ 1 เรื่อง)</span><textarea id="cs-extra" rows="2" placeholder="เช่น แผลบวมแดงขนาด 2 ซม. ใกล้ตำแหน่งแทงเข็ม venous กดเจ็บ"></textarea></label>
+        <h4>เรื่องที่ปรึกษา</h4>
+        <div class="checks" id="cs-topics"></div>
+        <input id="cs-other" placeholder="เรื่องอื่น ๆ (ถ้าเลือก อื่น ๆ)" hidden>
+        <h4>สิ่งที่ขอจากแพทย์</h4>
+        <div class="checks" id="cs-requests"></div>
+        <input id="cs-request-note" placeholder="ขอเพิ่มเติม (ถ้ามี)">
+        <h4>รายงานแพทย์ (แก้ได้)</h4>
+        <textarea id="cs-report" rows="12"></textarea>
+        <div class="actions">
+          <button type="button" id="cs-save">บันทึกการปรึกษา</button>
+          <button type="button" class="ghost" id="cs-copy">คัดลอกข้อความ</button>
+          <button type="button" class="ghost" id="cs-print">พิมพ์</button>
+          <button type="button" class="ghost" id="cs-reset">สร้างรายงานใหม่จากแบบฟอร์ม</button>
+        </div>
+      </div>
+      <span class="msg" id="cs-msg"></span>
+    </section>
+  </main>
+
   <main id="view-patients" hidden>
     <section class="panel">
       <div class="toolbar">
@@ -499,5 +519,6 @@
   <script type="module" src="patients.js"></script>
   <script type="module" src="schedule.js"></script>
   <script type="module" src="archive.js"></script>
+  <script type="module" src="consults.js"></script>
 </body>
 </html>

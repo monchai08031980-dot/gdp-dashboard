@@ -72,6 +72,16 @@ test('บันทึกการปรึกษา ติ๊ก Notified Doctor
   const ans = await (await call(`${path}/${c.id}`, 'PATCH', { doctor_name: 'นพ.จำลอง', doctor_order: 'NSS 100 ml stat, ลด UF' })).json();
   assert.equal(ans.doctor_order, 'NSS 100 ml stat, ลด UF');
   assert.ok(ans.answered_at);
+  // รายการปรึกษาของทุกเตียง: กรองสถานะและวันที่ฟอก
+  const open = await (await call('/consults?status=open&date=2026-10-16')).json();
+  const mine = open.filter((x) => x.session_id === s.id);
+  assert.deepEqual(mine.map((x) => x.topics), [['fever']]);
+  assert.equal(mine[0].bed_no, 4);
+  assert.equal(mine[0].first_name, 'ทดสอบ');
+  const answered = await (await call('/consults?status=answered')).json();
+  assert.ok(answered.some((x) => x.id === c.id));
+  assert.ok(!(await (await call('/consults?status=open')).json()).some((x) => x.id === c.id));
+  assert.ok(!(await (await call('/consults?date=2026-10-15')).json()).some((x) => x.session_id === s.id));
   const audit = await (await call(`/audit?session_id=${s.id}`)).json();
   assert.ok(audit.filter((a) => a.table_name === 'doctor_consults').length >= 3);
   assert.ok(audit.some((a) => a.table_name === 'dialysis_sessions' && a.action === 'UPDATE' && a.reason === 'ปรึกษาแพทย์'));
