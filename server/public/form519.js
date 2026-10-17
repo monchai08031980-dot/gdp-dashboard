@@ -225,4 +225,11 @@ export const PATIENT_SHIFT_FIELDS = [
 
 export const PATIENT_FIELDS = [...PATIENT_INFO_FIELDS, ...PATIENT_SHIFT_FIELDS];
 
+// ซักประวัติเบื้องต้นจากหน้าเตรียมผู้ป่วย (ตารางฟอกล่วงหน้า) เก็บลงแบบฟอร์ม 519 ของนัดนั้นโดยตรง
+const ASSESSMENT_NAMES = ['pre_symptoms', 'pre_nurse_note', 'pre_weight_kg', 'dry_weight_kg', 'last_bw_kg', 'weight_gain_kg', 'target_uf_kg', 'post_bw_kg'];
+export const ASSESSMENT_SECTIONS = SECTIONS
+  .map((s) => ({ title: s.title, fields: s.fields.filter((f) => ASSESSMENT_NAMES.includes(f.name)) }))
+  .filter((s) => s.fields.length);
+export const ASSESSMENT_FIELDS = ASSESSMENT_SECTIONS.flatMap((s) => s.fields);
+
 export const SESSION_COLUMNS = ['patient_id', ...SECTIONS.flatMap((s) => s.fields.map((f) => f.name))];

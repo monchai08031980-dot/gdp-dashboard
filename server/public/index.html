@@ -241,6 +241,21 @@
         <dl class="pd-facts" id="pd-facts"></dl>
       </div>
       <div class="pd-entry" id="pd-entry"></div>
+      <form class="subpanel pa" id="pa" hidden>
+        <div class="vitals-head">
+          <h3>ซักประวัติเบื้องต้น</h3>
+          <span id="pa-state" class="cap-hint"></span>
+        </div>
+        <div id="pa-fields"></div>
+        <p class="cap-hint">ค่าที่บันทึกที่นี่เป็นค่าเดียวกับใน Hemodialysis sheet ของนัดนี้ แก้ที่หน้าใดก็เปลี่ยนทั้งสองหน้า</p>
+        <div class="actions">
+          <input id="pa-reason" placeholder="เหตุผลที่แก้ไข (ถ้ามี)">
+          <button type="submit" id="pa-save">บันทึกการซักประวัติ</button>
+          <button type="button" class="ghost" id="pa-sheet" hidden>เปิด Hemodialysis sheet</button>
+          <button type="button" class="ghost" id="pa-close">ปิด</button>
+          <span class="msg" id="pa-msg"></span>
+        </div>
+      </form>
       <div class="pd-cols">
         <div><h3>นัดฟอกที่จะถึง</h3><ul class="pd-list" id="pd-upcoming"></ul></div>
         <div><h3>การฟอกล่าสุด</h3><ul class="pd-list" id="pd-recent"></ul></div>

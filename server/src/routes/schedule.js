@@ -1,5 +1,9 @@
 import { Router } from 'express';
 import { pool, withAudit } from '../db.js';
+import { pick, insertSql, updateSql } from '../crud.js';
+import { ASSESSMENT_FIELDS } from '../../public/form519.js';
+
+const ASSESSMENT_COLUMNS = ASSESSMENT_FIELDS.map((f) => f.name);
 
 // ---------------------------------------------------------------------------
 // การตั้งค่ารอบฟอก: GET /api/shifts, PUT /api/shifts
@@ -45,8 +49,8 @@ shifts.put('/', async (req, res) => {
 export const schedule = Router();
 
 const ENTRY_SELECT = `
-  SELECT e.*, p.hn, p.prefix, p.first_name, p.last_name, p.photo_file_id
-  FROM schedule_entries e JOIN patients p ON p.id = e.patient_id`;
+  SELECT e.*, p.hn, p.prefix, p.first_name, p.last_name, p.photo_file_id, s.pre_weight_kg IS NOT NULL AS assessed
+  FROM schedule_entries e JOIN patients p ON p.id = e.patient_id LEFT JOIN dialysis_sessions s ON s.id = e.session_id`;
 
 // GET /api/schedule?from=YYYY-MM-DD&to=YYYY-MM-DD&shift=&patient_id=
 schedule.get('/', async (req, res) => {
@@ -151,4 +155,67 @@ schedule.delete('/:id', async (req, res) => {
     (await db.query("UPDATE schedule_entries SET status = 'CANCELLED' WHERE id = $1 AND status = 'PLANNED' RETURNING id", [req.params.id])).rows[0]);
   if (!row) return res.status(404).json({ error: 'ไม่พบนัด' });
   res.status(204).end();
+});
+
+// ---------------------------------------------------------------------------
+// ซักประวัติเบื้องต้นของนัด (Pre dialysis assessment และน้ำหนัก)
+// ค่าเก็บในแบบฟอร์ม 519 ของนัดนี้โดยตรง (schedule_entries.session_id) Hemodialysis sheet จึงแสดงค่าเดียวกัน
+// ---------------------------------------------------------------------------
+// ค่าตั้งต้นของแบบฟอร์มใหม่: Dry weight จากข้อมูลผู้ป่วย, Last BW จาก Post BW ของการฟอกครั้งก่อน
+async function newSessionDefaults(db, entry) {
+  const { rows } = await db.query(
+    `SELECT p.dry_weight_kg, p.vascular_access AS access_type, p.access_side,
+       (SELECT s.post_bw_kg FROM dialysis_sessions s WHERE s.patient_id = p.id AND s.post_bw_kg IS NOT NULL
+          AND (s.session_date, s.shift) < ($2::date, $3::smallint) ORDER BY s.session_date DESC, s.shift DESC LIMIT 1) AS last_bw_kg,
+       (SELECT coalesce(max(s.session_no), 0) + 1 FROM dialysis_sessions s WHERE s.patient_id = p.id) AS session_no
+     FROM patients p WHERE p.id = $1`,
+    [entry.patient_id, entry.schedule_date, entry.shift],
+  );
+  return rows[0];
+}
+
+schedule.get('/:id/assessment', async (req, res) => {
+  const { rows } = await pool.query(`${ENTRY_SELECT} WHERE e.id = $1`, [req.params.id]);
+  const entry = rows[0];
+  if (!entry || entry.status !== 'PLANNED') return res.status(404).json({ error: 'ไม่พบนัด' });
+  let values;
+  if (entry.session_id) {
+    const s = (await pool.query('SELECT * FROM dialysis_sessions WHERE id = $1', [entry.session_id])).rows[0];
+    values = Object.fromEntries(ASSESSMENT_COLUMNS.map((c) => [c, s[c] ?? null]));
+  } else {
+    const d = await newSessionDefaults(pool, entry);
+    values = Object.fromEntries(ASSESSMENT_COLUMNS.map((c) => [c, d[c] ?? null]));
+  }
+  res.json({ entry, session_id: entry.session_id, values });
+});
+
+// บันทึกการซักประวัติ: ครั้งแรกสร้างแบบฟอร์ม 519 (สถานะร่าง) ของนัดนี้ หรือผูกกับแบบฟอร์มของวันและรอบเดียวกันที่มีอยู่แล้ว
+schedule.put('/:id/assessment', async (req, res) => {
+  const data = pick(req.body, ASSESSMENT_COLUMNS);
+  if (!Object.keys(data).length) return res.status(400).json({ error: 'ไม่มีข้อมูลที่จะบันทึก' });
+  const session = await withAudit(req.actor, req.reason || 'ซักประวัติเบื้องต้น', async (db) => {
+    const entry = (await db.query("SELECT * FROM schedule_entries WHERE id = $1 AND status = 'PLANNED' FOR UPDATE", [req.params.id])).rows[0];
+    if (!entry) return null;
+    let sessionId = entry.session_id;
+    if (!sessionId) {
+      const existing = await db.query(
+        `SELECT s.id FROM dialysis_sessions s WHERE s.patient_id = $1 AND s.session_date = $2 AND s.shift = $3
+           AND NOT EXISTS (SELECT 1 FROM schedule_entries e WHERE e.session_id = s.id) LIMIT 1`,
+        [entry.patient_id, entry.schedule_date, entry.shift],
+      );
+      sessionId = existing.rows[0]?.id;
+      if (!sessionId) {
+        const d = await newSessionDefaults(db, entry);
+        const row = {
+          patient_id: entry.patient_id, session_date: entry.schedule_date, shift: entry.shift, bed_no: entry.bed_no, status: 'DRAFT',
+          session_no: d.session_no, dry_weight_kg: d.dry_weight_kg, last_bw_kg: d.last_bw_kg, access_type: d.access_type, access_side: d.access_side,
+        };
+        sessionId = (await db.query(insertSql('dialysis_sessions', row))).rows[0].id;
+      }
+      await db.query('UPDATE schedule_entries SET session_id = $2 WHERE id = $1', [entry.id, sessionId]);
+    }
+    return (await db.query(updateSql('dialysis_sessions', sessionId, data))).rows[0];
+  });
+  if (!session) return res.status(404).json({ error: 'ไม่พบนัด' });
+  res.json(session);
 });
