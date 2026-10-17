@@ -276,6 +276,14 @@
           <input type="file" id="pa-scale-file" accept="image/*" capture="environment" hidden>
           <span class="cap-hint" id="pa-scale-msg">ถ่ายให้เห็นตัวเลขบนตาชั่งชัด ระบบอ่านสองรอบ เติม Pre weight เฉพาะเมื่อตรงกัน พยาบาลตรวจก่อนบันทึก ภาพไม่ถูกเก็บ</span>
         </div>
+        <div class="pa-voice" id="pa-voice">
+          <div class="pa-voice-row">
+            <button type="button" class="ghost" id="pa-mic">🎤 พูด</button>
+            <textarea id="pa-voice-text" rows="2" placeholder="พูดหรือพิมพ์ เช่น ขาบวม คัน ไม่มีไข้ น้ำหนัก 62.4"></textarea>
+            <button type="button" class="ghost" id="pa-voice-apply">ใส่ลงฟอร์ม</button>
+          </div>
+          <span class="cap-hint" id="pa-voice-msg">ระบบติ๊กอาการ เติมน้ำหนัก และใส่ข้อความใน Nurse note ให้ พยาบาลตรวจก่อนกดบันทึก</span>
+        </div>
         <div id="pa-fields"></div>
         <p class="cap-hint">ค่าที่บันทึกที่นี่เป็นค่าเดียวกับใน Hemodialysis sheet ของนัดนี้ แก้ที่หน้าใดก็เปลี่ยนทั้งสองหน้า</p>
         <div class="actions">

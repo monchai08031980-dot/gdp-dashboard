@@ -1,5 +1,6 @@
 // หน้าเตรียมผู้ป่วย: ตารางนัดฟอกล่วงหน้าแบบวัน สัปดาห์ เดือน และดูข้อมูลผู้ป่วย
 import { PATIENT_FIELDS, CHECKLISTS, ASSESSMENT_SECTIONS, ASSESSMENT_FIELDS } from './form519.js';
+import { parseSpoken } from './voiceNote.js';
 import { $, api, apiList, apiUpload, blobUrl, esc, fmtDate, fmtTime, age, needUser, renderField, readField } from './common.js';
 
 const NO_REASON = 's-no-reason'; // หน้านี้ไม่มีช่องเหตุผล
@@ -468,6 +469,9 @@ async function openAssessment() {
     input.setAttribute('enterkeyhint', 'next');
   }
   weightInputs().at(-1).setAttribute('enterkeyhint', 'done');
+  stopMic();
+  $('pa-voice-text').value = '';
+  voiceMsg(VOICE_HINT);
   scaleMsg(SCALE_HINT);
   $('pa-scale').hidden = !(await scaleReaderOn());
   $('pa').hidden = false;
@@ -544,6 +548,85 @@ $('pa-scale-file').addEventListener('change', async (e) => {
 });
 // พยาบาลแก้ค่าเองแล้ว ไม่ใช่ค่าจากรูปอีกต่อไป
 $('pa').addEventListener('input', (e) => { if (e.isTrusted && e.target.name === 'pre_weight_kg') e.target.classList.remove('from-photo'); });
+
+// พูดแทนพิมพ์: เปลี่ยนเสียงเป็นข้อความด้วยระบบรู้จำเสียงของเบราว์เซอร์ (ภาษาไทย) แล้วแปลเป็นอาการและน้ำหนักในเครื่อง (voiceNote.js)
+// เบราว์เซอร์ที่ไม่มีระบบรู้จำเสียง ใช้ไมค์บนคีย์บอร์ดมือถือพูดลงช่องข้อความ หรือพิมพ์เองแล้วกด "ใส่ลงฟอร์ม"
+const VOICE_HINT = $('pa-voice-msg').textContent;
+const voiceMsg = (text, warn = false) => { $('pa-voice-msg').textContent = text; $('pa-voice-msg').classList.toggle('warn', warn); };
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!Recognition) $('pa-mic').hidden = true;
+let mic = null;
+function stopMic() { mic?.stop(); }
+
+$('pa-mic').addEventListener('click', () => {
+  if (mic) { mic.stop(); return; }
+  const box = $('pa-voice-text');
+  const start = box.value.trim();
+  mic = new Recognition();
+  Object.assign(mic, { lang: 'th-TH', continuous: true, interimResults: true });
+  let heard = '';
+  mic.onresult = (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) heard += e.results[i][0].transcript + ' ';
+      else interim += e.results[i][0].transcript;
+    }
+    box.value = [start, heard + interim].filter(Boolean).join(' ').trim();
+  };
+  mic.onerror = (e) => {
+    voiceMsg(e.error === 'not-allowed' || e.error === 'service-not-allowed'
+      ? 'ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน กรุณาอนุญาตในเบราว์เซอร์ หรือพิมพ์ในช่องแทน'
+      : e.error === 'no-speech' ? 'ไม่ได้ยินเสียง กรุณากดพูดอีกครั้ง' : 'รับเสียงไม่สำเร็จ กรุณาลองใหม่หรือพิมพ์แทน', true);
+  };
+  mic.onend = () => {
+    mic = null;
+    $('pa-mic').classList.remove('listening');
+    $('pa-mic').textContent = '🎤 พูด';
+    if (heard.trim()) applyVoice();
+  };
+  mic.start();
+  $('pa-mic').classList.add('listening');
+  $('pa-mic').textContent = '⏹ หยุดพูด';
+  voiceMsg('กำลังฟัง... พูดอาการและน้ำหนัก แล้วกดหยุดพูด');
+});
+
+function applyVoice() {
+  const text = $('pa-voice-text').value.trim();
+  if (!text) { voiceMsg('ยังไม่มีข้อความ กรุณาพูดหรือพิมพ์ก่อน', true); return; }
+  const f = $('pa');
+  const { yes, no, weights, note } = parseSpoken(text);
+  f.querySelectorAll('label.from-voice, label.voice-off').forEach((el) => el.classList.remove('from-voice', 'voice-off'));
+  const box = (key) => f.querySelector(`[name=pre_symptoms][value="${key}"]`);
+  const label = (key) => CHECKLISTS.pre_symptoms.find(([k]) => k === key)?.[1] || key;
+  const ticked = [];
+  const unticked = [];
+  for (const key of yes) { const el = box(key); if (!el) continue; el.checked = true; el.closest('label')?.classList.add('from-voice'); ticked.push(label(key)); }
+  for (const key of no) { const el = box(key); if (!el?.checked) continue; el.checked = false; el.closest('label')?.classList.add('voice-off'); unticked.push(label(key)); }
+  const filled = [];
+  for (const [name, kg] of Object.entries(weights)) {
+    const input = f.elements[name];
+    if (!input) continue;
+    input.value = kg.toFixed(1);
+    input.classList.add('from-photo');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    filled.push(`${ASSESSMENT_FIELDS.find((x) => x.name === name)?.label || name} ${kg.toFixed(1)}`);
+  }
+  if (note) {
+    const n = f.elements.pre_nurse_note;
+    if (!n.value.includes(note)) n.value = [n.value.trim(), note].filter(Boolean).join('\n');
+  }
+  const parts = [
+    ticked.length && `ติ๊ก ${ticked.join(', ')}`,
+    unticked.length && `เอาออก ${unticked.join(', ')}`,
+    filled.length && filled.join(', '),
+    note && 'ใส่ข้อความใน Nurse note แล้ว',
+  ].filter(Boolean);
+  voiceMsg(parts.length ? `${parts.join(' · ')} กรุณาตรวจช่องสีฟ้าก่อนกดบันทึก` : 'ไม่พบอาการหรือน้ำหนักในข้อความ', !parts.length);
+  $('pa-voice-text').value = '';
+}
+$('pa-voice-apply').addEventListener('click', applyVoice);
+$('pa-voice-text').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); applyVoice(); } });
+$('pa').addEventListener('change', (e) => { if (e.target.name === 'pre_symptoms') e.target.closest('label')?.classList.remove('from-voice', 'voice-off'); });
 
 $('pa').addEventListener('submit', async (e) => {
   e.preventDefault();

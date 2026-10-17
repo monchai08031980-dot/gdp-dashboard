@@ -236,3 +236,11 @@ input.time-24[aria-invalid="true"] { border-color: #b91c1c; }
 .pa-scale .cap-hint { flex: 1 1 260px; }
 .pa-scale .warn { color: var(--warn-text); }
 #pa input.from-photo { border-color: var(--accent); background: var(--accent-soft); }
+.pa-voice { margin: 0 0 10px; }
+.pa-voice-row { display: flex; gap: 8px; align-items: stretch; }
+.pa-voice-row textarea { flex: 1; min-width: 0; resize: vertical; font: inherit; }
+.pa-voice .cap-hint.warn { color: var(--warn-text); }
+#pa-mic.listening { border-color: var(--accent); background: var(--accent-soft); }
+#pa label.from-voice { background: var(--accent-soft); border-radius: 4px; }
+#pa label.voice-off { background: var(--warn-bg); border-radius: 4px; text-decoration: line-through; }
+@media (max-width: 600px) { .pa-voice-row { flex-wrap: wrap; } .pa-voice-row textarea { flex-basis: 100%; order: -1; } }
