@@ -366,6 +366,18 @@
         <h4>ภาวะที่ระบบพบ</h4>
         <div class="checks" id="cs-findings"></div>
         <label class="field wide"><span>สิ่งที่พบเพิ่มเติมจากการตรวจ (บรรทัดละ 1 เรื่อง)</span><textarea id="cs-extra" rows="2" placeholder="เช่น แผลบวมแดงขนาด 2 ซม. ใกล้ตำแหน่งแทงเข็ม venous กดเจ็บ"></textarea></label>
+        <h4>รูปแนบ</h4>
+        <div class="cs-photo-bar">
+          <button type="button" class="ghost" id="cs-photo-btn">📷 ถ่าย / แนบรูป</button>
+          <input type="file" id="cs-photo-file" accept="image/*" multiple hidden>
+          <button type="button" class="ghost" id="cs-ai" hidden>🤖 ให้ AI ช่วยดูรูป</button>
+          <span class="cap-hint" id="cs-photo-msg">ถ่ายเฉพาะบริเวณที่ผิดปกติ เช่น ตำแหน่งแทงเข็ม ไม่ให้เห็นหน้าหรือชื่อผู้ป่วย</span>
+        </div>
+        <div class="cs-thumbs" id="cs-thumbs"></div>
+        <div class="cs-ai-box" id="cs-ai-box" hidden>
+          <div id="cs-ai-result"></div>
+          <label class="check"><input type="checkbox" id="cs-ai-include" checked> ใส่ข้อสังเกตจาก AI ลงในรายงานแพทย์</label>
+        </div>
         <h4>เรื่องที่ปรึกษา</h4>
         <div class="checks" id="cs-topics"></div>
         <input id="cs-other" placeholder="เรื่องอื่น ๆ (ถ้าเลือก อื่น ๆ)" hidden>

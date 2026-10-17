@@ -4,10 +4,12 @@ import assert from 'node:assert/strict';
 import { pool } from '../src/db.js';
 import { app } from '../src/app.js';
 import { consultFindings, buildSbar } from '../public/consult.js';
+import { setConsultReader } from '../src/screenReader.js';
+import { cleanAiReview, aiReviewText } from '../public/consultAi.js';
 
 const server = app.listen(0);
 const base = `http://localhost:${server.address().port}/api`;
-after(async () => { server.close(); await pool.end(); });
+after(async () => { setConsultReader(null); server.close(); await pool.end(); });
 const headers = { 'X-User-Name': encodeURIComponent('พยาบาล'), 'X-User-Role': 'NURSE', 'Content-Type': 'application/json' };
 const call = (path, method = 'GET', body, h = headers) => fetch(base + path, { method, headers: h, body: body && JSON.stringify(body) });
 
@@ -85,4 +87,70 @@ test('บันทึกการปรึกษา ติ๊ก Notified Doctor
   const audit = await (await call(`/audit?session_id=${s.id}`)).json();
   assert.ok(audit.filter((a) => a.table_name === 'doctor_consults').length >= 3);
   assert.ok(audit.some((a) => a.table_name === 'dialysis_sessions' && a.action === 'UPDATE' && a.reason === 'ปรึกษาแพทย์'));
+});
+
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1]);
+
+test('ผลจาก AI: กรองรหัสเรื่อง และข้อความสำหรับรายงานบอกว่าไม่ใช่การวินิจฉัย', () => {
+  const r = cleanAiReview({ summary: 'บวมแดงรอบเข็ม', observations: [{ text: 'แดงบวม 2 ซม.', concern: 'high' }, { text: '', concern: 'low' }],
+    red_flags: ['อาจติดเชื้อ'], possible_causes: ['อาจเข้าได้กับการอักเสบ'], suggested_topics: ['access_swelling', 'nope'], image_quality: 'x', notes: '' });
+  assert.deepEqual(r.suggested_topics, ['access_swelling']);
+  assert.equal(r.observations.length, 1);
+  assert.equal(r.image_quality, 'good');
+  const text = aiReviewText(r);
+  assert.match(text, /ไม่ใช่การวินิจฉัย/);
+  assert.match(text, /แดงบวม 2 ซม\. \(ควรให้แพทย์ดูโดยเร็ว\)/);
+});
+
+test('แนบรูปในการปรึกษา ให้ AI ดูรูป และเก็บข้อสังเกตจาก AI', async () => {
+  const patient = await (await call('/patients', 'POST', { hn: `TEST-CSI-${Date.now()}`, first_name: 'ทดสอบ', last_name: 'รูป', sex: 'F' })).json();
+  const s = await (await call('/sessions', 'POST', { patient_id: patient.id, session_date: '2026-10-16', bed_no: 6 })).json();
+
+  // AI ดูรูป: ปิดอยู่ตอบ 501
+  setConsultReader(null);
+  const prev = process.env.SCREEN_READER;
+  delete process.env.SCREEN_READER;
+  const img = { data: JPEG.toString('base64') };
+  assert.equal((await call('/consults/ai-review', 'POST', { images: [img] })).status, 501);
+  assert.equal((await (await call('/health')).json()).consult_ai, false);
+  if (prev !== undefined) process.env.SCREEN_READER = prev;
+
+  let seen = null;
+  setConsultReader(async (images, prompt) => { seen = { n: images.length, type: images[0].type, prompt };
+    return { summary: 'บวมแดงรอบเข็ม venous', observations: [{ text: 'แดงบวม', concern: 'high' }], red_flags: [], possible_causes: [], suggested_topics: ['access_swelling'], image_quality: 'good', notes: '' }; });
+  assert.equal((await (await call('/health')).json()).consult_ai, true);
+  assert.equal((await call('/consults/ai-review', 'POST', { images: [] })).status, 400);
+  assert.equal((await call('/consults/ai-review', 'POST', { images: [img, img, img, img, img] })).status, 400);
+  assert.equal((await call('/consults/ai-review', 'POST', { images: [{ data: Buffer.from('nope').toString('base64') }] })).status, 415);
+  assert.equal((await call('/consults/ai-review', 'POST', { images: [img] }, { 'Content-Type': 'application/json' })).status, 400);
+  // รูปใหญ่กว่าคำขอทั่วไป (100kb) ต้องรับได้
+  const big = { data: Buffer.concat([JPEG, Buffer.alloc(300 * 1024)]).toString('base64') };
+  const review = await (await call('/consults/ai-review', 'POST', { images: [big, img], context: { topics: ['access_swelling'], findings: ['Vascular access มี Inflammation'] } })).json();
+  assert.deepEqual(review.suggested_topics, ['access_swelling']);
+  assert.equal(seen.n, 2);
+  assert.equal(seen.type, 'image/jpeg');
+  assert.match(seen.prompt, /Vascular access มี Inflammation/);
+  assert.doesNotMatch(seen.prompt, /ทดสอบ|TEST-CSI/);
+
+  const c = await (await call(`/sessions/${s.id}/consults`, 'POST', { topics: ['access_swelling'], report: 'รายงาน', ai_review: aiReviewText(review) })).json();
+  assert.match(c.ai_review, /ไม่ใช่การวินิจฉัย/);
+  assert.ok(c.ai_reviewed_at);
+  const up = (body, type = 'image/jpeg') => fetch(`${base}/sessions/${s.id}/consults/${c.id}/images`, { method: 'POST', headers: { ...headers, 'Content-Type': type, 'X-File-Name': encodeURIComponent('แผล.jpg') }, body });
+  assert.equal((await up(Buffer.from('nope'))).status, 415);
+  const file = await (await up(JPEG)).json();
+  assert.equal(file.file_name, 'แผล.jpg');
+  const got = await fetch(`${base}/sessions/${s.id}/consults/${c.id}/images/${file.id}`);
+  assert.equal(got.headers.get('content-type'), 'image/jpeg');
+  assert.deepEqual(Buffer.from(await got.arrayBuffer()), JPEG);
+  let detail = await (await call(`/sessions/${s.id}`)).json();
+  assert.deepEqual(detail.consults[0].images.map((i) => i.id), [file.id]);
+  const list = await (await call('/consults?date=2026-10-16')).json();
+  assert.equal(list.find((x) => x.id === c.id).images.length, 1);
+  // ไม่ปนกับเอกสารของผู้ป่วย และลบแบบเก็บประวัติ
+  const files = await (await call(`/patients/${patient.id}/files`)).json();
+  assert.ok(files.every((f) => f.kind !== 'DOCUMENT'));
+  assert.equal((await call(`/sessions/${s.id}/consults/${c.id}/images/${file.id}`, 'DELETE')).status, 204);
+  detail = await (await call(`/sessions/${s.id}`)).json();
+  assert.deepEqual(detail.consults[0].images, []);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM file_contents WHERE file_id = $1', [file.id])).rows[0].n, 1);
 });

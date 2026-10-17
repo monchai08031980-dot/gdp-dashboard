@@ -7,10 +7,13 @@ import settings from './routes/settings.js';
 import { schedule, shifts } from './routes/schedule.js';
 import consults from './routes/consults.js';
 import { ROLES } from './db.js';
-import { screenReaderEnabled, scaleReaderEnabled, readScale, imageType } from './screenReader.js';
+import { screenReaderEnabled, scaleReaderEnabled, consultReaderEnabled, readScale, imageType } from './screenReader.js';
 
 export const app = express();
-app.use(express.json());
+// รูปแนบให้ AI ดู (base64 หลายรูป) ใหญ่กว่าคำขอทั่วไป จึงรับได้ใหญ่กว่าเฉพาะเส้นทางนี้
+const bigJson = express.json({ limit: '30mb' });
+const json = express.json();
+app.use((req, res, next) => (req.path === '/api/consults/ai-review' ? bigJson : json)(req, res, next));
 app.use(express.static(fileURLToPath(new URL('../public/', import.meta.url))));
 
 // TODO: แทนที่ด้วยระบบล็อกอินจริง ตอนนี้รับชื่อผู้บันทึกจาก header ชั่วคราว
@@ -28,7 +31,7 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, screen_reader: screenReaderEnabled(), scale_reader: scaleReaderEnabled() }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, screen_reader: screenReaderEnabled(), scale_reader: scaleReaderEnabled(), consult_ai: consultReaderEnabled() }));
 
 // อ่านน้ำหนักจากรูปตาชั่ง ยังไม่บันทึกอะไร ส่งค่ากลับให้พยาบาลตรวจในฟอร์มซักประวัติ แล้วกดบันทึกเอง (รูปไม่ได้เก็บไว้)
 app.post('/api/scale/read', express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: 10 * 1024 * 1024 }), async (req, res) => {

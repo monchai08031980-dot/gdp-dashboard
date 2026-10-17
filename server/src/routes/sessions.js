@@ -6,6 +6,8 @@ import { loadSession, latestExport, prepareExport, confirmSession } from '../dat
 import { checkSession } from '../../public/sessionCheck.js';
 import { notifyVital, sessionNotifications } from '../alertNotify.js';
 import { CONSULT_TOPICS, CONSULT_REQUESTS, URGENCY } from '../../public/consult.js';
+import { CONSULT_IMAGES } from './consults.js';
+import { createHash } from 'node:crypto';
 import { SESSION_COLUMNS, VITAL_FIELDS, MEDICATION_FIELDS } from '../../public/form519.js';
 
 const VITAL_COLUMNS = VITAL_FIELDS.map((f) => f.name);
@@ -100,7 +102,7 @@ router.post(
 );
 
 // ปรึกษาแพทย์: บันทึกรายงาน SBAR ที่พยาบาลตรวจแล้ว และติ๊ก Notified Doctor ในแบบฟอร์มให้ในคราวเดียวกัน
-const sessionConsults = async (id) => (await pool.query('SELECT * FROM doctor_consults WHERE session_id = $1 ORDER BY created_at', [id])).rows;
+const sessionConsults = async (id) => (await pool.query(`SELECT c.*, ${CONSULT_IMAGES} AS images FROM doctor_consults c WHERE c.session_id = $1 ORDER BY c.created_at`, [id])).rows;
 const keys = (list, allowed) => (Array.isArray(list) ? [...new Set(list.filter((k) => allowed.some(([a]) => a === k)))] : []);
 const texts = (list) => (Array.isArray(list) ? list.map((t) => String(t).trim().slice(0, 300)).filter(Boolean).slice(0, 30) : []);
 
@@ -113,6 +115,7 @@ router.post('/:id/consults', async (req, res) => {
   const topics = keys(b.topics, CONSULT_TOPICS);
   if (!topics.length) return res.status(400).json({ error: 'กรุณาเลือกเรื่องที่ปรึกษาอย่างน้อย 1 เรื่อง' });
   const urgency = URGENCY[b.urgency] ? b.urgency : 'URGENT';
+  const aiReview = typeof b.ai_review === 'string' && b.ai_review.trim() ? b.ai_review.trim().slice(0, 5000) : null;
   const row = await withAudit(req.actor, req.reason || 'ปรึกษาแพทย์', async (db) => {
     const s = (await db.query('SELECT nursing_management FROM dialysis_sessions WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
     if (!s) return null;
@@ -120,9 +123,9 @@ router.post('/:id/consults', async (req, res) => {
       await db.query("UPDATE dialysis_sessions SET nursing_management = array_append(coalesce(nursing_management, '{}'), 'notified_doctor') WHERE id = $1", [req.params.id]);
     }
     return (await db.query(
-      `INSERT INTO doctor_consults (session_id, urgency, topics, findings, requests, report, reported_by, reported_by_role)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-      [req.params.id, urgency, topics, texts(b.findings), keys(b.requests, CONSULT_REQUESTS), report, req.actor.name, req.actor.role || null],
+      `INSERT INTO doctor_consults (session_id, urgency, topics, findings, requests, report, reported_by, reported_by_role, ai_review, ai_reviewed_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $9::text IS NULL THEN NULL ELSE now() END) RETURNING *`,
+      [req.params.id, urgency, topics, texts(b.findings), keys(b.requests, CONSULT_REQUESTS), report, req.actor.name, req.actor.role || null, aiReview],
     )).rows[0];
   });
   if (!row) return res.status(404).json({ error: 'ไม่พบรอบการฟอก' });
@@ -141,6 +144,51 @@ router.patch('/:id/consults/:consultId', async (req, res) => {
      WHERE id = $3 AND session_id = $4 RETURNING *`, [doctor.slice(0, 200), order.slice(0, 5000), req.params.consultId, req.params.id])).rows[0]);
   if (!row) return res.status(404).json({ error: 'ไม่พบการปรึกษานี้' });
   res.json(row);
+});
+
+// รูปแนบของการปรึกษา: เก็บในไฟล์ของผู้ป่วย (kind CONSULT) เนื้อไฟล์แก้ไม่ได้ ลบแบบเก็บประวัติ
+const isJpeg = (b) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+router.post('/:id/consults/:consultId/images', express.raw({ type: 'image/jpeg', limit: 10 * 1024 * 1024 }), async (req, res) => {
+  if (!req.actor) return res.status(400).json({ error: 'กรุณาเลือกตำแหน่งผู้บันทึก' });
+  const content = Buffer.isBuffer(req.body) ? req.body : null;
+  if (!content?.length || !isJpeg(content)) return res.status(415).json({ error: 'รับเฉพาะรูป .jpg' });
+  const fileName = (req.get('X-File-Name') ? decodeURIComponent(req.get('X-File-Name')) : 'consult.jpg').slice(0, 200);
+  const row = await withAudit(req.actor, req.reason || 'แนบรูปการปรึกษาแพทย์', async (db) => {
+    const { rows: c } = await db.query(
+      'SELECT s.patient_id FROM doctor_consults c JOIN dialysis_sessions s ON s.id = c.session_id WHERE c.id = $1 AND c.session_id = $2',
+      [req.params.consultId, req.params.id]);
+    if (!c[0]) return null;
+    const { rows } = await db.query(
+      `INSERT INTO patient_files (patient_id, kind, consult_id, file_name, mime_type, size_bytes, sha256, uploaded_by)
+       VALUES ($1, 'CONSULT', $2, $3, 'image/jpeg', $4, $5, $6) RETURNING id, file_name, created_at`,
+      [c[0].patient_id, req.params.consultId, fileName, content.length, createHash('sha256').update(content).digest('hex'), req.user]);
+    await db.query('INSERT INTO file_contents (file_id, content) VALUES ($1, $2)', [rows[0].id, content]);
+    return rows[0];
+  });
+  if (!row) return res.status(404).json({ error: 'ไม่พบการปรึกษานี้' });
+  res.status(201).json(row);
+});
+
+router.get('/:id/consults/:consultId/images/:fileId', async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT f.file_name, c.content FROM patient_files f JOIN file_contents c ON c.file_id = f.id
+     JOIN doctor_consults dc ON dc.id = f.consult_id
+     WHERE f.id = $1 AND f.consult_id = $2 AND dc.session_id = $3 AND f.deleted_at IS NULL`,
+    [req.params.fileId, req.params.consultId, req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'ไม่พบรูป' });
+  res.set({ 'Content-Type': 'image/jpeg', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store',
+    'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(rows[0].file_name)}` });
+  res.send(rows[0].content);
+});
+
+router.delete('/:id/consults/:consultId/images/:fileId', async (req, res) => {
+  if (!req.actor) return res.status(400).json({ error: 'กรุณาเลือกตำแหน่งผู้บันทึก' });
+  const row = await withAudit(req.actor, req.reason || 'ลบรูปการปรึกษาแพทย์', async (db) => (await db.query(
+    `UPDATE patient_files f SET deleted_at = now() FROM doctor_consults dc
+     WHERE f.id = $1 AND f.consult_id = $2 AND dc.id = f.consult_id AND dc.session_id = $3 AND f.deleted_at IS NULL RETURNING f.id`,
+    [req.params.fileId, req.params.consultId, req.params.id])).rows[0]);
+  if (!row) return res.status(404).json({ error: 'ไม่พบรูป' });
+  res.status(204).end();
 });
 
 // แถวย่อยของแบบฟอร์ม: บันทึกระหว่างฟอก และยาระหว่างฟอก

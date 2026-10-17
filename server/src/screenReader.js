@@ -5,6 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 
 import { SCREEN_FIELDS, SCREEN_PROMPT, SCREEN_READS, reconcileReads } from '../public/screenRead.js';
 import { SCALE_PROMPT, SCALE_READS, reconcileScale } from '../public/scaleRead.js';
+import { consultAiPrompt, CONSULT_AI_SCHEMA, cleanAiReview } from '../public/consultAi.js';
 
 const nullable = (type) => ({ anyOf: [{ type }, { type: 'null' }] });
 const ROW = {
@@ -39,6 +40,32 @@ const SCALE_SCHEMA = {
 };
 
 let client = null;
+
+// หลายรูปในคำขอเดียว: images = [{ data: Buffer, type }]
+async function claudeImages(images, prompt, schema) {
+  client ??= new Anthropic();
+  const response = await client.beta.messages.create({
+    model: 'claude-opus-5-5',
+    max_tokens: 8000,
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    output_config: { effort: 'high', format: { type: 'json_schema', schema } },
+    messages: [{
+      role: 'user',
+      content: [
+        ...images.map((im) => ({ type: 'image', source: { type: 'base64', media_type: im.type, data: im.data.toString('base64') } })),
+        { type: 'text', text: prompt },
+      ],
+    }],
+  });
+  if (response.stop_reason === 'refusal') throw httpError(422, 'ระบบไม่ดูรูปนี้ กรุณาบรรยายสิ่งที่เห็นเอง');
+  const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw httpError(502, 'อ่านผลจากระบบไม่ได้ กรุณาลองใหม่');
+  }
+}
 
 async function claudeReader(image, mediaType, prompt = SCREEN_PROMPT, schema = SCHEMA) {
   client ??= new Anthropic();
@@ -83,6 +110,21 @@ function activeScaleReader() {
 }
 export const screenReaderEnabled = () => Boolean(activeReader());
 export const scaleReaderEnabled = () => Boolean(activeScaleReader());
+
+// ให้ AI ช่วยดูรูปในการปรึกษาแพทย์ (ส่งรูปไปภายนอกเหมือนกัน จึงเปิดด้วยค่าเดียวกัน)
+let consultReader = null;
+export function setConsultReader(fn) { consultReader = fn; }
+function activeConsultReader() {
+  if (consultReader) return consultReader;
+  return claudeOn() ? (images, prompt) => claudeImages(images, prompt, CONSULT_AI_SCHEMA) : null;
+}
+export const consultReaderEnabled = () => Boolean(activeConsultReader());
+export async function reviewConsultImages(images, context) {
+  const read = activeConsultReader();
+  if (!read) throw httpError(501, 'ยังไม่ได้เปิดใช้ AI ดูรูป (ตั้ง SCREEN_READER=claude และ ANTHROPIC_API_KEY หลังโรงพยาบาลอนุมัติ)');
+  const [result] = await readTimes(() => read(images, consultAiPrompt(context)), 1);
+  return cleanAiReview(result);
+}
 
 async function readTimes(read, times, image, mediaType) {
   try {

@@ -243,3 +243,14 @@ new MutationObserver((records) => {
     else enhanceAll(n);
   }
 }).observe(document.body, { childList: true, subtree: true });
+
+// ย่อรูปให้ด้านยาวไม่เกิน max px แล้วแปลงเป็น JPEG (ส่งเร็ว ไม่ติดขนาดไฟล์)
+export async function toJpegFile(file, name = 'photo.jpg', max = 1600) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+  const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale) });
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+  return new File([blob], name, { type: 'image/jpeg' });
+}

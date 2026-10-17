@@ -1,6 +1,7 @@
 // เมนูหลัก ปรึกษาแพทย์: รายการปรึกษาของทุกเตียง (รอคำสั่ง / ได้รับคำสั่งแล้ว) และการปรึกษาใหม่
 // รวบรวมภาวะอันตรายจาก Hemodialysis sheet และเรียบเรียงรายงาน SBAR (consult.js) พยาบาลแก้แล้วบันทึก มี audit log
-import { $, api, esc, fmtTime, fmtDate, needUser } from './common.js';
+import { $, api, apiUpload, blobUrl, esc, fmtTime, fmtDate, needUser, toJpegFile } from './common.js';
+import { aiReviewText, CONCERN, CONSULT_AI_MAX_IMAGES } from './consultAi.js';
 import { consultFindings, buildSbar, CONSULT_TOPICS, CONSULT_REQUESTS, URGENCY } from './consult.js';
 
 const say = (t) => { $('cs-msg').textContent = t; };
@@ -9,6 +10,10 @@ const topicText = (k) => CONSULT_TOPICS.find(([x]) => x === k)?.[1] || k;
 const fullName = (r) => `${r.prefix || ''}${r.first_name || ''} ${r.last_name || ''}`.trim();
 let target = null; // { session, patient, vitals }
 let edited = false;
+let photos = []; // รูปที่แนบในการปรึกษาใหม่ (ยังไม่บันทึก) [{ file, url }]
+let aiReview = null; // ผลจาก AI ของรูปชุดนี้
+let aiOn = null;
+const aiEnabled = async () => (aiOn ??= fetch('/api/health').then((r) => r.json()).then((h) => Boolean(h.consult_ai)).catch(() => false));
 
 $('cs-date').value = todayIso();
 
@@ -36,11 +41,42 @@ async function loadList() {
       </div>
       <div>เรื่อง: ${esc(c.topics.map(topicText).join(', '))}</div>
       <details><summary>ดูรายงาน</summary><pre>${esc(c.report)}</pre></details>
+      ${c.ai_review ? `<details class="cs-ai"><summary>🤖 ข้อสังเกตจาก AI</summary><pre>${esc(c.ai_review)}</pre></details>` : ''}
+      ${c.images?.length ? `<div class="cs-thumbs">${c.images.map((im) => `<div class="cs-thumb"><img data-src="/sessions/${c.session_id}/consults/${c.id}/images/${im.id}" alt="${esc(im.file_name)}"></div>`).join('')}</div>` : ''}
       ${c.answered_at ? `<div class="answered"><b>คำสั่งแพทย์</b> (${esc(c.doctor_name)} · ${fmtTime(c.answered_at)})<pre>${esc(c.doctor_order)}</pre></div>` : `
       <div class="cs-order"><input name="doctor_name" placeholder="ชื่อแพทย์"><textarea name="doctor_order" rows="2" placeholder="คำสั่งแพทย์ที่ได้รับ"></textarea>
       <button type="button" class="ghost" data-act="order">บันทึกคำสั่งแพทย์</button></div>`}
-      <div class="actions"><button type="button" class="ghost" data-act="sheet">เปิด Hemodialysis sheet</button><span class="msg"></span></div>
+      <div class="actions"><button type="button" class="ghost" data-act="sheet">เปิด Hemodialysis sheet</button>
+        <button type="button" class="ghost" data-act="add-photo">📷 แนบรูปเพิ่ม</button><input type="file" accept="image/*" multiple hidden data-act="photo-file"><span class="msg"></span></div>
     </div>`).join('') : '<p class="cap-hint">ไม่มีการปรึกษาตามเงื่อนไขที่เลือก</p>';
+  // โหลดรูปแนบ (ต้องผ่าน API จึงใช้ blob URL)
+  for (const img of $('cs-list').querySelectorAll('img[data-src]')) blobUrl(img.dataset.src).then((url) => { img.src = url; }).catch(() => { img.alt = 'เปิดรูปไม่ได้'; });
+}
+
+// ดูรูปขนาดเต็ม
+document.addEventListener('click', (e) => {
+  const img = e.target.closest('.cs-thumb img');
+  if (img?.src) window.open(img.src, '_blank');
+});
+$('cs-list').addEventListener('change', async (e) => {
+  if (e.target.dataset.act !== 'photo-file') return;
+  const item = e.target.closest('.cs-item');
+  const msg = item.querySelector('.msg');
+  const files = [...e.target.files];
+  e.target.value = '';
+  if (!files.length) return;
+  if (needUser('cs-msg')) { msg.textContent = 'กรุณาเลือกผู้บันทึกก่อน'; return; }
+  try {
+    msg.textContent = 'กำลังแนบรูป...';
+    await uploadPhotos(item.dataset.session, item.dataset.id, files);
+    await loadList();
+  } catch (err) { msg.textContent = 'แนบรูปไม่สำเร็จ: ' + err.message; }
+});
+async function uploadPhotos(sessionId, consultId, files) {
+  for (const [i, f] of files.entries()) {
+    const jpg = f.type === 'image/jpeg' && f.size < 2e6 ? f : await toJpegFile(f, `consult-${i + 1}.jpg`);
+    await apiUpload(`/sessions/${sessionId}/consults/${consultId}/images`, jpg, 'cs-no-reason');
+  }
 }
 
 $('cs-date').addEventListener('change', () => { loadList().catch((err) => say(err.message)); if (!$('cs').hidden && !target) fillSessions(); });
@@ -51,6 +87,8 @@ $('cs-list').addEventListener('click', async (e) => {
   const item = btn.closest('.cs-item');
   const msg = item.querySelector('.msg');
   if (btn.dataset.act === 'sheet') { document.dispatchEvent(new CustomEvent('open-session', { detail: item.dataset.session })); return; }
+  if (btn.dataset.act === 'add-photo') { item.querySelector('[data-act=photo-file]').click(); return; }
+  if (btn.dataset.act === 'photo-file') return;
   if (needUser('cs-msg')) { msg.textContent = 'กรุณาเลือกผู้บันทึกก่อน'; return; }
   const body = { doctor_name: item.querySelector('[name=doctor_name]').value, doctor_order: item.querySelector('[name=doctor_order]').value };
   if (!body.doctor_name.trim() || !body.doctor_order.trim()) { msg.textContent = 'กรุณากรอกชื่อแพทย์และคำสั่งแพทย์'; return; }
@@ -97,6 +135,11 @@ function showForm() {
   checks('cs-topics', CONSULT_TOPICS, [...new Set(findings.filter((f) => f.level === 'danger' && f.topic).map((f) => f.topic))]);
   checks('cs-requests', CONSULT_REQUESTS, ['order']);
   for (const id of ['cs-extra', 'cs-other', 'cs-request-note']) $(id).value = '';
+  photos.forEach((p) => URL.revokeObjectURL(p.url));
+  photos = [];
+  aiReview = null;
+  renderPhotos();
+  aiEnabled().then((on) => { $('cs-ai').hidden = !on; });
   $('cs-other').hidden = true;
   edited = false;
   makeReport();
@@ -113,7 +156,79 @@ function pick() {
     reporter: $('user-role').selectedOptions?.[0]?.textContent?.trim() || '',
   };
 }
-const makeReport = () => { $('cs-report').value = buildSbar(target.session, target.vitals, target.patient, pick()); };
+// ข้อสังเกตจาก AI ใส่ต่อท้ายส่วน A ของรายงาน (ก่อน R:)
+const makeReport = () => {
+  let text = buildSbar(target.session, target.vitals, target.patient, pick());
+  if (photos.length) text = text.replace('\nR: ', `\n   แนบรูป ${photos.length} รูป\nR: `);
+  if (aiReview && $('cs-ai-include').checked) text = text.replace('\nR: ', `\n${aiReviewText(aiReview)}\nR: `);
+  $('cs-report').value = text;
+};
+
+// ---------------------------------------------------------------------------
+// รูปแนบในการปรึกษาใหม่ และให้ AI ช่วยดู
+// ---------------------------------------------------------------------------
+const photoMsg = (t) => { $('cs-photo-msg').textContent = t; };
+function renderPhotos() {
+  $('cs-thumbs').innerHTML = photos.map((p, i) => `<div class="cs-thumb"><img src="${p.url}" alt="รูปที่ ${i + 1}"><button type="button" class="ghost danger" data-del="${i}" aria-label="เอารูปออก">×</button></div>`).join('');
+  $('cs-ai').disabled = !photos.length;
+  $('cs-ai-box').hidden = !aiReview;
+}
+$('cs-photo-btn').addEventListener('click', () => $('cs-photo-file').click());
+$('cs-photo-file').addEventListener('change', async (e) => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  for (const [i, f] of files.entries()) {
+    if (!f.type.startsWith('image/')) { photoMsg('รับเฉพาะไฟล์รูปภาพ'); continue; }
+    try {
+      const file = await toJpegFile(f, `consult-${photos.length + 1}.jpg`);
+      photos.push({ file, url: URL.createObjectURL(file) });
+    } catch { photoMsg(`เปิดรูปที่ ${i + 1} ไม่ได้`); }
+  }
+  aiReview = null;
+  renderPhotos();
+  if (target) { if (!edited) makeReport(); }
+});
+$('cs-thumbs').addEventListener('click', (e) => {
+  const i = e.target.dataset.del;
+  if (i === undefined) return;
+  URL.revokeObjectURL(photos[i].url);
+  photos.splice(Number(i), 1);
+  aiReview = null;
+  renderPhotos();
+  if (!edited) makeReport();
+});
+const toBase64 = (file) => file.arrayBuffer().then((b) => { let s = ''; const u = new Uint8Array(b); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); });
+$('cs-ai').addEventListener('click', async () => {
+  if (!photos.length || needUser('cs-msg')) return;
+  if (photos.length > CONSULT_AI_MAX_IMAGES) { photoMsg(`ให้ AI ดูได้ครั้งละไม่เกิน ${CONSULT_AI_MAX_IMAGES} รูป`); return; }
+  $('cs-ai').disabled = true;
+  photoMsg('AI กำลังดูรูป อาจใช้เวลาถึง 1 นาที...');
+  try {
+    const p = pick();
+    const images = await Promise.all(photos.map(async (ph) => ({ data: await toBase64(ph.file) })));
+    aiReview = await api('/consults/ai-review', { method: 'POST', body: JSON.stringify({ images, context: { topics: p.topics, findings: p.findings } }) }, 'cs-no-reason');
+    showAi();
+    // ติ๊กเรื่องที่ AI แนะนำเพิ่มให้ (ไม่เอาที่ติ๊กไว้ออก)
+    for (const k of aiReview.suggested_topics) { const el = $('cs-topics').querySelector(`input[value="${k}"]`); if (el && !el.checked) { el.checked = true; el.closest('label').classList.add('from-voice'); } }
+    photoMsg('AI ดูรูปแล้ว กรุณาตรวจข้อสังเกตกับผู้ป่วยจริงก่อนส่งรายงาน');
+    if (!edited) makeReport();
+  } catch (err) {
+    photoMsg('AI ดูรูปไม่สำเร็จ: ' + err.message);
+  } finally { $('cs-ai').disabled = !photos.length; }
+});
+function showAi() {
+  const r = aiReview;
+  $('cs-ai-result').innerHTML = `<b>🤖 ข้อสังเกตเบื้องต้นจาก AI</b>
+    ${r.summary ? `<p>${esc(r.summary)}</p>` : ''}
+    ${r.observations.length ? `<ul>${r.observations.map((o) => `<li class="${o.concern}">${esc(o.text)} <small>(${esc(CONCERN[o.concern])})</small></li>`).join('')}</ul>` : ''}
+    ${r.red_flags.length ? `<p><b>สัญญาณอันตราย:</b> ${esc(r.red_flags.join('; '))}</p>` : ''}
+    ${r.possible_causes.length ? `<p>${esc(r.possible_causes.join('; '))}</p>` : ''}
+    ${r.image_quality === 'poor' ? '<p><b>รูปไม่ชัดพอ</b> ควรถ่ายใหม่หรือให้แพทย์ดูผู้ป่วยโดยตรง</p>' : ''}
+    ${r.notes ? `<p>${esc(r.notes)}</p>` : ''}
+    <p class="disclaimer">เป็นการช่วยดูเบื้องต้นจากรูปเท่านั้น ไม่ใช่การวินิจฉัย แพทย์ต้องประเมินผู้ป่วยเอง</p>`;
+  $('cs-ai-box').hidden = false;
+}
+$('cs-ai-include').addEventListener('change', () => { if (!edited) makeReport(); });
 
 function openNew() {
   $('cs').hidden = false;
@@ -161,14 +276,19 @@ $('cs-save').addEventListener('click', async () => {
   $('cs-save').disabled = true;
   try {
     const id = target.session.id;
-    await api(`/sessions/${id}/consults`, { method: 'POST', body: JSON.stringify({ ...p, report: $('cs-report').value }) }, 'cs-no-reason');
+    const ai = aiReview && $('cs-ai-include').checked ? aiReviewText(aiReview) : null;
+    const saved = await api(`/sessions/${id}/consults`, { method: 'POST', body: JSON.stringify({ ...p, report: $('cs-report').value, ai_review: ai }) }, 'cs-no-reason');
+    let photoError = '';
+    try { await uploadPhotos(id, saved.id, photos.map((ph) => ph.file)); } catch (err) { photoError = ` แต่แนบรูปไม่สำเร็จ (${err.message}) กด "แนบรูปเพิ่ม" ในรายการ`; }
     document.dispatchEvent(new CustomEvent('consult-saved', { detail: id }));
     $('cs').hidden = true;
     target = null;
     $('cs-status').value = 'all';
     $('cs-date').value = $('cs-date').value || todayIso();
     await loadList();
-    $('cs-open-all').textContent = 'บันทึกการปรึกษาแล้ว และติ๊ก Notified Doctor ใน Hemodialysis sheet ให้แล้ว เมื่อได้รับคำสั่งแพทย์ ให้บันทึกในรายการด้านล่าง';
+    $('cs-open-all').textContent = `บันทึกการปรึกษาแล้ว${photos.length ? ` พร้อมรูป ${photos.length} รูป` : ''} และติ๊ก Notified Doctor ใน Hemodialysis sheet ให้แล้ว${photoError} เมื่อได้รับคำสั่งแพทย์ ให้บันทึกในรายการด้านล่าง`;
+    photos = [];
+    aiReview = null;
   } catch (err) { say('บันทึกไม่สำเร็จ: ' + err.message); }
   finally { $('cs-save').disabled = false; }
 });
